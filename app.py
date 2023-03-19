@@ -8,6 +8,7 @@ import dash_bootstrap_components as dbc
 
 import pandas as pd
 import random
+import datetime
 import plotly.graph_objects as go
 import warnings
 import sys
@@ -126,8 +127,7 @@ def smart_scale(df, predictors, responses):
     
     return df, predictors, responses
         
-    
-    
+   
 def dummify(df, cat_vars, dropone=True):
 
     dropped = []
@@ -317,8 +317,6 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     
     return y_train, y_pred, df1_summary, df2_summary, supported_features, unsupported, colors
     
-
-
 
 def run_logistic_regression(df, xvars, yvar, cat_vars):
     
@@ -584,7 +582,6 @@ def description_card_final():
     )
 
 
-
 def control_card_upload():
     
     return html.Div(
@@ -620,7 +617,6 @@ def control_card_upload():
     )
 
     
-
 def control_card1():
 
     return html.Div(
@@ -912,7 +908,6 @@ def control_card2():
                        'width': '98.5%',
                     },
             )
-
 
 
 def control_card3():
@@ -1268,7 +1263,6 @@ def parse_contents(contents, filename, date):
     return df.to_json()
 
 
-
 def generate_figure_1():
 
     return html.Div(
@@ -1293,7 +1287,8 @@ def generate_figure_1():
                     'margin-right': '10px',
                 },
     )
-    
+ 
+   
 def generate_figure_2():
 
     return html.Div(
@@ -1321,74 +1316,6 @@ def generate_figure_2():
     )
 
 
-@app.callback(
-    Output("modal-centered", "is_open"),
-    [Input("open-centered", "n_clicks"), Input("close-centered", "n_clicks")],
-    [State("modal-centered", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-
-@app.callback(
-    Output("modal-centered2", "is_open"),
-    [Input("open-centered2", "n_clicks"), Input("close-centered2", "n_clicks")],
-    [State("modal-centered2", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-
-@app.callback(
-    Output("modal-centered3", "is_open"),
-    [Input("open-centered3", "n_clicks"), Input("close-centered3", "n_clicks")],
-    [State("modal-centered3", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-
-@app.callback(
-    Output("modal-centered4", "is_open"),
-    [Input("open-centered4", "n_clicks"), Input("close-centered4", "n_clicks")],
-    [State("modal-centered4", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-
-@app.callback(
-    Output("modal-centered5", "is_open"),
-    [Input("open-centered5", "n_clicks"), Input("close-centered5", "n_clicks")],
-    [State("modal-centered5", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-
-@app.callback(
-    Output("modal-centered6", "is_open"),
-    [Input("open-centered6", "n_clicks"), Input("close-centered6", "n_clicks")],
-    [State("modal-centered6", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-
-
-
 def generate_figure_3():
 
     return html.Div(
@@ -1413,7 +1340,6 @@ def generate_figure_3():
                     'margin-right': '10px',
                 },
     )
-
 
 
 def generate_figure_4a():
@@ -1446,6 +1372,7 @@ def generate_figure_4a():
                     'margin-right': '8%',
                 },
     )
+
 
 def generate_figure_4b():
 
@@ -1488,6 +1415,7 @@ def generate_figure_4b():
 #########################################################################################
 ################################# DASH APP LAYOUT #######################################
 #########################################################################################
+
 
 
 app.layout = html.Div([
@@ -1701,11 +1629,74 @@ app.layout = html.Div([
 
 
 
-
-
 #########################################################################################
 ############################    Callbacks   #############################################
 #########################################################################################
+
+@app.callback(
+    Output("modal-centered", "is_open"),
+    [Input("open-centered", "n_clicks"), Input("close-centered", "n_clicks")],
+    [State("modal-centered", "is_open")],
+)
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered2", "is_open"),
+    [Input("open-centered2", "n_clicks"), Input("close-centered2", "n_clicks")],
+    [State("modal-centered2", "is_open")],
+)
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered3", "is_open"),
+    [Input("open-centered3", "n_clicks"), Input("close-centered3", "n_clicks")],
+    [State("modal-centered3", "is_open")],
+)
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered4", "is_open"),
+    [Input("open-centered4", "n_clicks"), Input("close-centered4", "n_clicks")],
+    [State("modal-centered4", "is_open")],
+)
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered5", "is_open"),
+    [Input("open-centered5", "n_clicks"), Input("close-centered5", "n_clicks")],
+    [State("modal-centered5", "is_open")],
+)
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered6", "is_open"),
+    [Input("open-centered6", "n_clicks"), Input("close-centered6", "n_clicks")],
+    [State("modal-centered6", "is_open")],
+)
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
 
 
 @app.callback([Output('main_df', 'data'),
@@ -1758,17 +1749,17 @@ def update_output1(list_of_contents, list_of_names, list_of_dates):
         df.dropna(how='all', axis=0, inplace=True)
         df = df.loc[:, df.nunique() != 1]
         
-        #dwb_col = df.columns.str.replace('\s+', '_')
-        #df.columns = dwb_col
-        
         df = df.replace(',','', regex=True)
-        
         df = df.replace({None: 'None'}) # This solved a bug ...
         
         cat_vars = []
         dichotomous_numerical_vars = []
         variables = list(df)
         for i in variables:
+            
+            if ' date ' in i or ' DATE ' in i or ' Date ' in i or ' date' in i or ' DATE' in i or ' Date' in i or '_date_' in i or '_DATE_' in i or '_Date_' in i or '_date' in i or '_DATE' in i or '_Date' in i or ',date' in i or ',DATE' in i or ',Date' in i or ';date' in i or ';DATE' in i or ';Date' in i:
+                df.drop(labels = [i], axis=1, inplace=True)
+                continue
             
             if 'Unnamed:' in i:
                 df.drop(labels = [i], axis=1, inplace=True)
