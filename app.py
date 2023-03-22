@@ -3586,4 +3586,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
