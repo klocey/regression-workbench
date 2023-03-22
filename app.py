@@ -89,39 +89,107 @@ def smart_scale(df, predictors, responses):
         except:
             continue
         
-        if skewness >= -2 and skewness <= 2:
+        if skewness >= -1.5 and skewness <= 1.5:
             continue
         
-        elif skewness > 2:
-        
-            if np.nanmin(df[i]) < 0:
-                df[i] = df[i]**(1/3)
-                var_lab = i + '^1/3'
-                
-            else:
-                df[i] = np.log10(df[i])
-                var_lab = 'log(' + i + ')'
-                
-        elif skewness < -2:
+        else:
+            
+            best_skew = float(skewness)
+            best_lab = str(i)
+            t_vals = df[i].tolist()
             
             if np.nanmin(df[i]) < 0:
+                continue
                 
-                df[i] = df[i]**3
-                var_lab = i + '^3'
+                # log-modulo transformation
+                lmt = np.log10(np.abs(df[i]) + 1).tolist()
+                for i, val in enumerate(df[i].tolist()):
+                    if val < 0:
+                        lmt[i] = lmt[i] * -1
                 
-            elif np.nanmin(df[i]) >= 0:
-                           
-                df[i] = df[i]**2
-                var_lab = i + '^2'
-        
-        df.rename(columns={i: var_lab}, inplace=True)
+                new_skew = stats.skew(lmt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = 'log_mod(' + i + ')'
+                    t_vals = lmt
+                
+                # cube root transformation
+                crt = df[i]**(1/3)
+                new_skew = stats.skew(crt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^1/3'
+                    t_vals = crt
+                    
+                # cube transformation
+                ct = df[i]**(3)
+                new_skew = stats.skew(ct, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^3'
+                    t_vals = ct
+                
+            elif np.nanmin(df[i]) == 0:
+                
+                # log-modulo transformation
+                lmt = np.log10(df[i] + 1).tolist()
+                new_skew = stats.skew(lmt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = 'log_mod(' + i + ')'
+                    t_vals = lmt
+                    
+                # square root transformation
+                srt = df[i]**(1/2)
+                new_skew = stats.skew(srt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^1/2'
+                    t_vals = srt
+                    
+                # square transformation
+                st = df[i]**(2)
+                new_skew = stats.skew(st, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^2'
+                    t_vals = st
+                
+            elif np.nanmin(df[i]) > 0:
+                lt = np.log10(df[i])
+                new_skew = stats.skew(lt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = 'log(' + i + ')'
+                    t_vals = lt
+                    
+                # square root transformation
+                srt = df[i]**(1/2)
+                new_skew = stats.skew(srt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^1/2'
+                    t_vals = srt
+                    
+                # square transformation
+                st = df[i]**(2)
+                new_skew = stats.skew(st, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^2'
+                    t_vals = st
+            
+            
+            df[i] = list(t_vals)
+            
+        df.rename(columns={i: best_lab}, inplace=True)
         
         if i in predictors:
             predictors.remove(i)
-            predictors.append(var_lab)
+            predictors.append(best_lab)
         if i in responses:
             responses.remove(i)
-            responses.append(var_lab)
+            responses.append(best_lab)
         
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
@@ -555,7 +623,7 @@ def description_card1():
                     style={
             'textAlign': 'left',
             }),
-            html.P("Explore relationships between variables and build and test predictive models with this regression-based application. If your uploaded data contain more than 10K rows and 1K columns, the app will use a random sample of your data consisting of 10K randomly chosen rows and 1K randomly chosen columns.",
+            dcc.Markdown("This app makes it easy to discover and explore interesting and powerful relationships within your data. Use it via the web or download the source code from [here] (https://github.com/klocey/regression-workbench) and run it locally.",
                     style={
             'textAlign': 'left',
             }),
@@ -588,11 +656,11 @@ def control_card_upload():
         id="control-card-upload1",
         children=[
             html.H5("Begin by uploading your data", style={'display': 'inline-block',
-                                                    'width': '90%'},),
+                                                    'width': '295px'},),
             html.I(className="fas fa-question-circle fa-lg", id="target1",
-                style={'display': 'inline-block', 'width': '10%', 'color':'#99ccff'},
+                style={'display': 'inline-block', 'width': '20px', 'color':'#99ccff'},
                 ),
-            dbc.Tooltip("Use sound data practices: No commas in column headers. No values with mixed data types (like 10cm or 10%). If your Excel file does not load, then it probably contains special formatting (frozen panes, etc.). If this happens, save your file as a csv and upload that.", target="target1",
+            dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters. Also, if you upload an Excel file and it doesn't load, then it likely has special formatting. If this happens, save your file as a csv and upload that.", target="target1",
                 style = {'font-size': 12},
                 ),
             html.P("Your file (csv or Excel) must only have rows, columns, and column headers. Excel files must have one sheet and no special formatting."),
@@ -622,14 +690,14 @@ def control_card1():
     return html.Div(
         id="control-card1",
         children=[
-                html.H5("Explore relationships with linear and nonlinear regression",
-                        style={'display': 'inline-block', 'width': '43%'},),
+                html.H5("Explore relationships between multiple features at once",
+                        style={'display': 'inline-block', 'width': '41.5%'},),
                 html.I(className="fas fa-question-circle fa-lg", id="target_select_vars",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("These analyses are based on ordinary least squares regression. They exclude categorical features and any numeric features having less than 4 unique values.", target="target_select_vars", style = {'font-size': 12},),
+                dbc.Tooltip("These analyses are based on ordinary least squares regression. They exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars", style = {'font-size': 12},),
                 html.Hr(),
                 
-                html.B("Choose your x-variables (predictors)",
+                html.B("Choose one or more x-variables. These are also known as predictors.",
                     style={'display': 'inline-block',
                             'vertical-align': 'top',
                             'margin-right': '10px',
@@ -644,7 +712,7 @@ def control_card1():
                         ),
                         
                 html.Br(),
-                html.B("Choose your y-variables (response variables)",
+                html.B("Choose one or more y-variables. These are also known as response variables.",
                     style={'display': 'inline-block',
                            'vertical-align': 'top',
                            'margin-right': '10px',
@@ -711,7 +779,7 @@ def control_card1():
                     ),
                 html.I(className="fas fa-question-circle fa-lg", id="ss1",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect which variables should be rescaled and which scale transformations are appropriate (log10, cube root, cubed, squared).", 
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and rescale any skewed variables. To remove the rescaling just click 'Run Regressions'.",
                             target="ss1", style = {'font-size': 12},),
                 
                 html.P("", id='rt0'),
@@ -732,7 +800,7 @@ def control_card2():
                         style={'display': 'inline-block', 'width': '35.4%'},),
                 html.I(className="fas fa-question-circle fa-lg", id="target_select_vars2",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("These analyses are based on ordinary least squares regression. They exclude categorical features and any numeric features having less than 4 unique values.", target="target_select_vars2", style = {'font-size': 12},),
+                dbc.Tooltip("These analyses are based on ordinary least squares regression. They exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars2", style = {'font-size': 12},),
                 html.Hr(),
                 
                 html.Div(
@@ -926,7 +994,13 @@ def control_card3():
                 html.B("Choose 2 or more predictors",
                     style={'vertical-align': 'top',
                            'margin-right': '10px',
+                           'display': 'inline-block', 'width': '210px'
                        }),
+                html.I(className="fas fa-question-circle fa-lg", id="target_mlrx1",
+                    style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
+                dbc.Tooltip("The app will recognize if your response variable occurs in this list of predictors. If it does, the app will ignore it.",
+                    target="target_mlrx1", style = {'font-size': 12},),
+                
                 dcc.Dropdown(
                         id='xvar3',
                         options=[{"label": i, "value": i} for i in []],
@@ -941,7 +1015,7 @@ def control_card3():
                         html.B("Choose your response variable",
                             style={'vertical-align': 'top',
                                    'margin-right': '10px',
-                                   'display': 'inline-block', 'width': '56.%'}),
+                                   'display': 'inline-block', 'width': '210px'}),
                         html.I(className="fas fa-question-circle fa-lg", id="target_y1",
                             style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
                         dbc.Tooltip("Does not include categorical features or any numerical feature with less than 4 unique values.",
@@ -1067,7 +1141,7 @@ def control_card3():
                     ),
                 html.I(className="fas fa-question-circle fa-lg", id="ss2",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect which variables should be rescaled and which scale transformations are appropriate (log10, cube root, cubed, squared).", 
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and rescale any skewed variables. To remove the rescaling just click 'Run Multiple Regression'.", 
                             target="ss2", style = {'font-size': 12},),
                 
                 #html.Button('Download results', id='btn3b', n_clicks=0,
@@ -1222,7 +1296,7 @@ def control_card4():
                     ),
                 html.I(className="fas fa-question-circle fa-lg", id="ss3",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect which variables should be rescaled and which scale transformations are appropriate (log10, cube root, cubed, squared).", 
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and rescale any skewed variables. To remove the rescaling just click 'Run Logistic Regression'.", 
                             target="ss3", style = {'font-size': 12},),
                 
                 #html.Button('Download results', id='btn4b', n_clicks=0,
@@ -1525,7 +1599,7 @@ app.layout = html.Div([
                                   html.I(className="fas fa-question-circle fa-lg", id="target_DataTable",
                                       style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},
                                       ),
-                                  dbc.Tooltip("This app tries to detect categorical variables. Example: A variable with values 'male' and 'female' will be converted two variables: 'sex:male' and 'sex:female'. The app will also detect which numerical variables only have values 0 and 1, and will allow them to be treated as categorical.", target="target_DataTable",
+                                  dbc.Tooltip("This app tries to detect categorical features. Example: A feature named 'sex' with values 'male' and 'female' will be converted two binary variables: 'sex:male' and 'sex:female', each containing only 0's and 1's.", target="target_DataTable",
                                         style = {'font-size': 12},
                                         ),
                                   html.P("", id='rt4'),
@@ -1739,11 +1813,11 @@ def update_output1(list_of_contents, list_of_names, list_of_dates):
         df.dropna(how='all', axis=1, inplace=True)
         df.dropna(how='all', axis=0, inplace=True)
         
-        if df.shape[0] > 10000:
-            df = df.sample(n = 10000, axis=0, replace=False, random_state=0)
+        if df.shape[0] > 5000:
+            df = df.sample(n = 5000, axis=0, replace=False, random_state=0)
         
-        if df.shape[1] > 1000:
-            df = df.sample(n = 1000, axis=1, replace=False, random_state=0)
+        if df.shape[1] > 50:
+            df = df.sample(n = 50, axis=1, replace=False, random_state=0)
             
         df.dropna(how='all', axis=1, inplace=True)
         df.dropna(how='all', axis=0, inplace=True)
@@ -1917,9 +1991,15 @@ def update_select_vars1(df, cat_vars):
                 drop_vars.append(f)
         df.drop(labels=drop_vars, axis=1, inplace=True)
         
-        ls = sorted(list(set(list(df))))
-        options = [{"label": i, "value": i} for i in ls]
-        return options, ls, options, ls
+        ls1 = sorted(list(set(list(df))))
+        ls2 = list(ls1)
+        options = [{"label": i, "value": i} for i in ls1]
+        
+        if len(ls1) > 4:
+            ls1 = ls1[:2]
+            ls2 = ls2[-2:]
+        
+        return options, ls1, options, ls2
     
     except:
         return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
@@ -3213,6 +3293,10 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         return {}, {}, dashT1, dashT2, "Error: Select two or more features for your predictors", [0], "", "", "", "", 0
     
     main_df = pd.read_json(main_df)
+    
+    print(yvar)
+    print(list(main_df))
+    
     y_prefix = str(yvar)
     if ':' in yvar:
         y_prefix = yvar[:yvar.index(":")]
@@ -3230,6 +3314,11 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
     main_df, dropped, cat_vars_ls = dummify_logistic(main_df, vars_, y_prefix, True)
     
     if yvar not in list(main_df):
+        
+        print('Error:')
+        print(yvar)
+        print(list(main_df))
+        
         return {}, {}, dashT1, dashT2, "Error: Choose a feature for your response variable", [0], "", "", "", "", 0
     
     yvals = main_df[yvar].tolist()
@@ -3493,4 +3582,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
