@@ -1015,7 +1015,7 @@ def control_card3():
                         html.B("Choose your response variable",
                             style={'vertical-align': 'top',
                                    'margin-right': '10px',
-                                   'display': 'inline-block', 'width': '210px'}),
+                                   'display': 'inline-block', 'width': '230px'}),
                         html.I(className="fas fa-question-circle fa-lg", id="target_y1",
                             style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
                         dbc.Tooltip("Does not include categorical features or any numerical feature with less than 4 unique values.",
@@ -1037,7 +1037,7 @@ def control_card3():
                 html.Div(id='choose_ref',
                     children = [
                         html.B("Remove unimportant variables",
-                            style={'display': 'inline-block', 'width': '58.%'},),
+                            style={'display': 'inline-block', 'width': '59.%'},),
                         html.I(className="fas fa-question-circle fa-lg", id="target_rfe",
                                     style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
                         dbc.Tooltip("Remove variables that have little-to-no effect on model performance. Removal is done using recursive feature elimination with 5-fold cross-validation. Unimportant features will not be removed if the resulting number of variables is less 2.", target="target_rfe", style = {'font-size': 12},),
@@ -1201,6 +1201,10 @@ def control_card4():
                            'vertical-align': 'top',
                            'margin-right': '10px',
                     }),
+                html.I(className="fas fa-question-circle fa-lg", id="target_select_y",
+                            style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
+                dbc.Tooltip("This is your 'target', the thing you want to predict.", 
+                            target="target_select_y", style = {'font-size': 12},),
                 
                 dcc.Dropdown(
                         id='yvar_logistic',
@@ -1599,7 +1603,7 @@ app.layout = html.Div([
                                   html.I(className="fas fa-question-circle fa-lg", id="target_DataTable",
                                       style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},
                                       ),
-                                  dbc.Tooltip("This app tries to detect categorical features. Example: A feature named 'sex' with values 'male' and 'female' will be converted two binary variables: 'sex:male' and 'sex:female', each containing only 0's and 1's.", target="target_DataTable",
+                                  dbc.Tooltip("Use this table to ensure your data uploaded as expected. Note, any dataset containing more than 5K rows or 50 columns will be randomly sampled to meet those constraints.", target="target_DataTable",
                                         style = {'font-size': 12},
                                         ),
                                   html.P("", id='rt4'),
@@ -2318,7 +2322,7 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
             ###################### Figure ########################
             fig_data = []
                 
-            df_models['label'] = df_models['y-variable'] + ' vs ' + df_models['x-variable']
+            df_models['label'] = df_models['y-variable'] + ' (Y) vs ' + df_models['x-variable'] + ' (X)'
             tdf = df_models[df_models['Model'] == 'cubic']
             tdf.sort_values(by='r-square', inplace=True, ascending=False)
             tdf = tdf.head(10)
@@ -2463,7 +2467,7 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
             del df_models
             #del df_table
             
-            txt1 = "The figure displays 10 pairs of features sharing the strongest relationships. "
+            txt1 = "This figure displays 'Y vs X' relationships for up to 10 pairs of features sharing the strongest relationships. "
             txt1 += "Polynomial regression is useful when relationships are noticeably curved. "
             txt1 += "Quadratic models account for 1 curve. Cubic models account for 2 curves. "
             txt1 += "When interpreting performance, consider whether or not a curvier model produces meaningfully greater improvement. "
@@ -3571,7 +3575,7 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         
     txt3 = "AUC = area under the ROC curve. Random 50:50 guesses produce values of 0.5. Your AUC value of " + str(auroc) + " indicates" + t1 + "diagnostic power."
     
-    txt4 = "AUC = area under the PRC curve. Random 50:50 guesses produce AUC values equal to the fraction of actual positive outcomes (1's) in the data."
+    txt4 = "AUC = area under the PRC curve. Random 50:50 guesses produce AUC values equal to the fraction of actual positive outcomes (1's) in the data (the null expectation)."
     
     return figure1, figure2, dashT1, dashT2, "", [1], txt1, txt2, txt3, txt4, 0
 
@@ -3582,4 +3586,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
