@@ -2733,10 +2733,10 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                 )
             )
 
-            if len(xvar) > 20:
-                xvar = xvar[0:10] + ' ... ' + xvar[-5:]
-            if len(yvar) > 20:
-                yvar = yvar[0:10] + ' ... ' + yvar[-5:]
+            #if len(xvar) > 20:
+            #    xvar = xvar[0:10] + ' ... ' + xvar[-5:]
+            #if len(yvar) > 20:
+            #    yvar = yvar[0:10] + ' ... ' + yvar[-5:]
                 
             if x_transform == 'log10':
                 xvar = 'log<sub>10</sub>(' + xvar + ')'
@@ -3610,4 +3610,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
