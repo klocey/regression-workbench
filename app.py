@@ -1896,15 +1896,17 @@ def update_data_table1(main_df):
             page_current= 0,
             page_size= 5,
             style_table={'overflowX': 'scroll',
-                         #'overflowY': 'auto',
+                         'overflowY': 'auto',
                          #'height': '415px',
                          },
-            style_cell={'textOverflow': 'auto',
-                        'textAlign': 'center',
-                        'minWidth': '140px',
-                        'width': '140px',
-                        'maxWidth': '220px',
-                        },
+            style_cell={
+                'height': 'auto',
+                'textAlign': 'center',
+                'minWidth': '200px', 
+                #'width': '140px',
+                # 'maxWidth': '220px',
+                'whiteSpace': 'normal',
+                },
         )
         return dashT
         
@@ -1928,14 +1930,16 @@ def update_data_table1(main_df):
             page_current= 0,
             page_size= 6,
             style_table={'overflowX': 'scroll',
-                         #'overflowY': 'auto',
+                         'overflowY': 'auto',
                          #'height': '415px',
                          },
             style_cell={
                 'height': 'auto',
                 'textAlign': 'center',
-                'minWidth': '140px', #'width': '140px',# 'maxWidth': '220px',
-                #'whiteSpace': 'normal',
+                'minWidth': '200px', 
+                #'width': '140px',
+                # 'maxWidth': '220px',
+                'whiteSpace': 'normal',
             }
         )
         
@@ -2322,7 +2326,7 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
             ###################### Figure ########################
             fig_data = []
                 
-            df_models['label'] = df_models['y-variable'] + ' (Y) vs ' + df_models['x-variable'] + ' (X)'
+            df_models['label'] = df_models['y-variable'] + ' vs ' + df_models['x-variable']
             tdf = df_models[df_models['Model'] == 'cubic']
             tdf.sort_values(by='r-square', inplace=True, ascending=False)
             tdf = tdf.head(10)
@@ -2451,17 +2455,17 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
                 page_current= 0,
                 page_size= 6,
                 style_table={'overflowX': 'scroll',
-                             #'overflowY': 'auto',
+                             'overflowY': 'auto',
                              #'height': '415px',
                              },
                 style_cell={
                     'height': 'auto',
                     'textAlign': 'center',
-                    'minWidth': '160px', 
-                    'width': '160px', 
-                    'maxWidth': '300px',
+                    'minWidth': '200px', 
+                    #'width': '140px',
+                    # 'maxWidth': '220px',
                     'whiteSpace': 'normal',
-                }
+                    },
             )
     
             del df_models
@@ -2729,6 +2733,11 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                 )
             )
 
+            if len(xvar) > 20:
+                xvar = xvar[0:10] + ' ... ' + xvar[-5:]
+            if len(yvar) > 20:
+                yvar = yvar[0:10] + ' ... ' + yvar[-5:]
+                
             if x_transform == 'log10':
                 xvar = 'log<sub>10</sub>(' + xvar + ')'
             if x_transform == 'square root':
@@ -2738,7 +2747,7 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                 yvar = 'log<sub>10</sub>(' + yvar + ')'
             if y_transform == 'square root':
                 yvar = 'square root of ' + yvar
-                
+              
             figure = go.Figure(
                 data = fig_data,
                 layout = go.Layout(
@@ -2911,15 +2920,17 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         page_current= 0,
         page_size= 6,
         style_table={'overflowX': 'scroll',
-                     #'overflowY': 'auto',
+                     'overflowY': 'auto',
                      #'height': '415px',
                      },
-        style_cell={'textOverflow': 'auto',
-                    'textAlign': 'center',
-                    'minWidth': '140px',
-                    'width': '140px',
-                    'maxWidth': '220px',
-                    },
+        style_cell={
+            'height': 'auto',
+            'textAlign': 'center',
+            'minWidth': '200px', 
+            #'width': '140px',
+            # 'maxWidth': '220px',
+            'whiteSpace': 'normal',
+            },
     )
     
     cols = ['Parameter', 'coef', 'std err', 'z', 'P>|z|', '[0.025]', '[0.975]', 'VIF']
@@ -2949,15 +2960,17 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         page_current= 0,
         page_size= 6,
         style_table={'overflowX': 'scroll',
-                     #'overflowY': 'auto',
+                     'overflowY': 'auto',
                      #'height': '415px',
                      },
-        style_cell={'textOverflow': 'auto',
-                    'textAlign': 'center',
-                    'minWidth': '140px',
-                    'width': '140px',
-                    'maxWidth': '220px',
-                    },
+        style_cell={
+            'height': 'auto',
+            'textAlign': 'center',
+            'minWidth': '200px', 
+            #'width': '140px',
+            # 'maxWidth': '220px',
+            'whiteSpace': 'normal',
+            },
     )
     
     if df is None:
@@ -3085,15 +3098,17 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
             page_current= 0,
             page_size= 10,
             style_table={'overflowX': 'scroll',
-                         #'overflowY': 'auto',
+                         'overflowY': 'auto',
                          #'height': '415px',
                          },
             style_cell={
                 'height': 'auto',
                 'textAlign': 'center',
-                'minWidth': '140px', #'width': '140px',# 'maxWidth': '220px',
-                #'whiteSpace': 'normal',
-            }
+                'minWidth': '200px', 
+                #'width': '140px',
+                # 'maxWidth': '220px',
+                'whiteSpace': 'normal',
+                },
         )
         del df
         #del df1_summary
@@ -3144,15 +3159,17 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
             page_current= 0,
             page_size= 10,
             style_table={'overflowX': 'scroll',
-                         #'overflowY': 'auto',
+                         'overflowY': 'auto',
                          #'height': '415px',
                          },
             style_cell={
                 'height': 'auto',
                 'textAlign': 'center',
-                #'minWidth': '200px', #'width': '140px',# 'maxWidth': '220px',
-                #'whiteSpace': 'normal',
-            }
+                'minWidth': '200px', 
+                #'width': '140px',
+                # 'maxWidth': '220px',
+                'whiteSpace': 'normal',
+                },
         )
         
         txt1 = "This plot allows you to interpret patterns in the regression model's success. Example: If points are consistently above the 1:1 line, then the observed values are always greater than the predicted values. If the relationship is curved and performance is weak, then try rescaling some of your variables (via log, square root, etc.)."
@@ -3227,15 +3244,17 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         page_current= 0,
         page_size= 10,
         style_table={'overflowX': 'scroll',
-                     #'overflowY': 'auto',
+                     'overflowY': 'auto',
                      #'height': '415px',
                      },
-        style_cell={'textOverflow': 'auto',
-                    'textAlign': 'center',
-                    'minWidth': '200px',
-                    'width': '200px',
-                    'maxWidth': '260px',
-                    },
+        style_cell={
+            'height': 'auto',
+            'textAlign': 'center',
+            'minWidth': '200px', 
+            #'width': '140px',
+            # 'maxWidth': '220px',
+            'whiteSpace': 'normal',
+            },
     )
     
     
@@ -3264,15 +3283,17 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         page_current= 0,
         page_size= 10,
         style_table={'overflowX': 'scroll',
-                     #'overflowY': 'auto',
+                     'overflowY': 'auto',
                      #'height': '415px',
                      },
-        style_cell={'textOverflow': 'auto',
-                'textAlign': 'center',
-                'minWidth': '300px',
-                'width': '300px',
-                'maxWidth': '360px',
-                },
+        style_cell={
+            'height': 'auto',
+            'textAlign': 'center',
+            'minWidth': '200px', 
+            #'width': '140px',
+            # 'maxWidth': '220px',
+            'whiteSpace': 'normal',
+            },
     )
     
     if main_df is None:
@@ -3507,15 +3528,17 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
             page_current= 0,
             page_size= 10,
             style_table={'overflowX': 'scroll',
-                         #'overflowY': 'auto',
+                         'overflowY': 'auto',
                          #'height': '415px',
                          },
-            style_cell={#'textOverflow': 'auto',
-                        'textAlign': 'center',
-                        'minWidth': '140px',
-                        'width': '140px',
-                        'maxWidth': '200px',
-                        },
+            style_cell={
+                'height': 'auto',
+                'textAlign': 'center',
+                'minWidth': '200px', 
+                #'width': '140px',
+                # 'maxWidth': '220px',
+                'whiteSpace': 'normal',
+                },
         )
         
     
@@ -3536,16 +3559,17 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         page_current= 0,
         page_size= 10,
         style_table={'overflowX': 'scroll',
-                     #'overflowY': 'auto',
+                     'overflowY': 'auto',
                      #'height': '415px',
                      },
         style_cell={
-                    'textOverflow': 'auto',
-                    'textAlign': 'center',
-                    'minWidth': '160px',
-                    'width': '160px',
-                    'maxWidth': '200px',
-                    },
+            'height': 'auto',
+            'textAlign': 'center',
+            'minWidth': '200px', 
+            #'width': '140px',
+            # 'maxWidth': '220px',
+            'whiteSpace': 'normal',
+            },
     )
         
     txt1 = "This table pertains to the fitted model. This model predicts the probability of an observation being a positive (1) instead of a negative (0). All this is before applying a diagnositic threshold, i.e., the point where we count an estimated probability as a 0 or a 1. The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates that a predictor variable is significantly correlated with one or more other predictors. VIF > 10 indicates severe multicollinearity, which can lead to overfitting and inaccurate parameter estimates. If your VIF's are high, trying removing some of those variables."
@@ -3586,4 +3610,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
