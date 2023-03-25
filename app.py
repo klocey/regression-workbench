@@ -753,7 +753,7 @@ def control_card1():
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot1"), html.P("", id='table1txt')]),
+                    [dbc.ModalBody([html.Div(id='table_plot1'), html.Br(), html.P("", id='table1txt')]),
                                     dbc.ModalFooter(
                                     dbc.Button("Close", id="close-centered2", className="ml-auto")
                                     ),
@@ -948,7 +948,7 @@ def control_card2():
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([dcc.Graph(id="residuals_plot1"), html.P("", id='fig2txt')]),
+                    [dbc.ModalBody([dcc.Graph(id="residuals_plot1"), html.Br(), html.P("", id='fig2txt')]),
                                     dbc.ModalFooter(
                                     dbc.Button("Close", id="close-centered", className="ml-auto")
                                     ),
@@ -1083,7 +1083,7 @@ def control_card3():
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot3b"), html.P("", id='tab3btxt')]),
+                    [dbc.ModalBody([html.Div(id="table_plot3b"), html.Br(), html.P("", id='tab3btxt')]),
                                     dbc.ModalFooter(
                                     dbc.Button("Close", id="close-centered3", className="ml-auto")
                                     ),
@@ -1115,7 +1115,7 @@ def control_card3():
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot3a"), html.P("Adjusted R-square accounts for sample size and the number of predictors used.")]),
+                    [dbc.ModalBody([html.Div(id="table_plot3a"), html.Br(), html.P("Adjusted R-square accounts for sample size and the number of predictors used.")]),
                                     dbc.ModalFooter(
                                     dbc.Button("Close", id="close-centered4", className="ml-auto")
                                     ),
@@ -1242,7 +1242,7 @@ def control_card4():
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot4a"), html.P("", id='tab4atxt')]),
+                    [dbc.ModalBody([html.Div(id="table_plot4a"), html.Br(), html.P("", id='tab4atxt')]),
                                     dbc.ModalFooter(
                                     dbc.Button("Close", id="close-centered5", className="ml-auto")
                                     ),
@@ -1274,7 +1274,7 @@ def control_card4():
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot4b"), html.P("", id='tab4btxt')]),
+                    [dbc.ModalBody([html.Div(id="table_plot4b"), html.Br(), html.P("", id='tab4btxt')]),
                                     dbc.ModalFooter(
                                     dbc.Button("Close", id="close-centered6", className="ml-auto")
                                     ),
@@ -1598,16 +1598,16 @@ app.layout = html.Div([
                     type="default",
                     fullscreen=False,
                     children=html.Div(id="data_table1",
-                        children=[html.H5("Data Table", style={'display': 'inline-block',
-                                                                'width': '11.5%'},),
+                        children=[html.H5("Data Table", style={'display': 'inline-block', 'width': '11.5%'},
+                                          ),
                                   html.I(className="fas fa-question-circle fa-lg", id="target_DataTable",
                                       style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},
                                       ),
                                   dbc.Tooltip("Use this table to ensure your data uploaded as expected. Note, any dataset containing more than 5K rows or 50 columns will be randomly sampled to meet those constraints.", target="target_DataTable",
-                                        style = {'font-size': 12},
+                                        style = {'font-size': 12, 'display': 'inline-block'},
                                         ),
+                                  
                                   html.P("", id='rt4'),
-                                  html.Hr(),
                                   html.Div(id='data_table_plot1'),
                                 ]))],
                             ),
@@ -1777,6 +1777,7 @@ def toggle_modal(n1, n2, is_open):
     return is_open
 
 
+
 @app.callback([Output('main_df', 'data'),
                Output('cat_vars', 'children'),
                Output('di_numerical_vars', 'children'),
@@ -1880,25 +1881,10 @@ def update_data_table1(main_df):
         df_table['feature 3'] = [np.nan]*7
         
         dashT = dash_table.DataTable(
-            columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df_table.columns],
             data = df_table.to_dict('records'),
-            editable=False,
-            #filter_action="native",
-            sort_action="native",
-            sort_mode="multi",
-            #column_selectable="single",
-            #row_selectable="multi",
-            row_deletable=False,
-            selected_columns=[],
-            selected_rows=[],
-            page_action="native",
-            #page_action='none',
-            page_current= 0,
-            page_size= 5,
-            style_table={'overflowX': 'scroll',
-                         'overflowY': 'auto',
-                         #'height': '415px',
-                         },
+            columns = [{'id': c, 'name': c} for c in df_table.columns],
+            page_action = 'none',
+            style_table = {'height': '250px', 'overflowY': 'auto'},
             style_cell={
                 'height': 'auto',
                 'textAlign': 'center',
@@ -1912,10 +1898,12 @@ def update_data_table1(main_df):
         
     else:
         main_df = pd.read_json(main_df)
-        
         dashT = dash_table.DataTable(
-            columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in main_df.columns],
-            data = main_df.to_dict('records'),
+            data=main_df.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in main_df.columns],
+            
+            virtualization=True,
+            page_action='none',
             editable=False,
             #filter_action="native",
             sort_action="native",
@@ -1925,14 +1913,8 @@ def update_data_table1(main_df):
             row_deletable=False,
             selected_columns=[],
             selected_rows=[],
-            page_action="native",
-            #page_action='none',
-            page_current= 0,
-            page_size= 6,
-            style_table={'overflowX': 'scroll',
-                         'overflowY': 'auto',
-                         #'height': '415px',
-                         },
+            
+            style_table={'height': '250px', 'overflowY': 'auto'},
             style_cell={
                 'height': 'auto',
                 'textAlign': 'center',
@@ -1940,7 +1922,7 @@ def update_data_table1(main_df):
                 #'width': '140px',
                 # 'maxWidth': '220px',
                 'whiteSpace': 'normal',
-            }
+                },
         )
         
         return dashT
@@ -2439,33 +2421,11 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
             df_table.sort_values(by='r-square', inplace=True, ascending=False)
             
             dashT = dash_table.DataTable(
-                columns=[{"name": i, "id": i, "deletable": False, "selectable": False} for i in df_table.columns],
-                data = df_table.to_dict('records'),
-                editable=False,
-                #filter_action="native",
-                sort_action="native",
-                sort_mode="multi",
-                #column_selectable="single",
-                #row_selectable="multi",
-                row_deletable=False,
-                selected_columns=[],
-                selected_rows=[],
-                page_action="native",
-                #page_action='none',
-                page_current= 0,
-                page_size= 6,
-                style_table={'overflowX': 'scroll',
-                             'overflowY': 'auto',
-                             #'height': '415px',
-                             },
-                style_cell={
-                    'height': 'auto',
-                    'textAlign': 'center',
-                    'minWidth': '200px', 
-                    #'width': '140px',
-                    # 'maxWidth': '220px',
-                    'whiteSpace': 'normal',
-                    },
+                data=df_table.to_dict('records'),
+                columns=[{'id': c, 'name': c} for c in df_table.columns],
+                
+                page_action='none',
+                style_table={'height': '500px', 'overflowY': 'auto'}
             )
     
             del df_models
@@ -2904,33 +2864,11 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
     df_table1['Model statistics'] = [np.nan]*10
     
     dashT1 = dash_table.DataTable(
-        columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df_table1.columns],
-        data = df_table1.to_dict('records'),
-        editable=False,
-        #filter_action="native",
-        sort_action="native",
-        sort_mode="multi",
-        #column_selectable="single",
-        #row_selectable="multi",
-        row_deletable=False,
-        selected_columns=[],
-        selected_rows=[],
-        page_action="native",
-        #page_action='none',
-        page_current= 0,
-        page_size= 6,
-        style_table={'overflowX': 'scroll',
-                     'overflowY': 'auto',
-                     #'height': '415px',
-                     },
-        style_cell={
-            'height': 'auto',
-            'textAlign': 'center',
-            'minWidth': '200px', 
-            #'width': '140px',
-            # 'maxWidth': '220px',
-            'whiteSpace': 'normal',
-            },
+        data=df_table1.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table1.columns],
+        
+        page_action='none',
+        style_table={'height': '300px', 'overflowY': 'auto'}
     )
     
     cols = ['Parameter', 'coef', 'std err', 'z', 'P>|z|', '[0.025]', '[0.975]', 'VIF']
@@ -2944,33 +2882,11 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
     df_table2['VIF'] = [np.nan]*10
     
     dashT2 = dash_table.DataTable(
-        columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df_table2.columns],
-        data = df_table2.to_dict('records'),
-        editable=False,
-        #filter_action="native",
-        sort_action="native",
-        sort_mode="multi",
-        #column_selectable="single",
-        #row_selectable="multi",
-        row_deletable=False,
-        selected_columns=[],
-        selected_rows=[],
-        page_action="native",
-        #page_action='none',
-        page_current= 0,
-        page_size= 6,
-        style_table={'overflowX': 'scroll',
-                     'overflowY': 'auto',
-                     #'height': '415px',
-                     },
-        style_cell={
-            'height': 'auto',
-            'textAlign': 'center',
-            'minWidth': '200px', 
-            #'width': '140px',
-            # 'maxWidth': '220px',
-            'whiteSpace': 'normal',
-            },
+        data=df_table2.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table2.columns],
+        
+        page_action='none',
+        style_table={'height': '300px', 'overflowY': 'auto'}
     )
     
     if df is None:
@@ -3082,34 +2998,13 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         )
 
         dashT1 = dash_table.DataTable(
-            columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df1_summary.columns],
-            data = df1_summary.to_dict('records'),
-            editable=False,
-            #filter_action="native",
-            sort_action="native",
-            sort_mode="multi",
-            #column_selectable="single",
-            #row_selectable="multi",
-            row_deletable=False,
-            selected_columns=[],
-            selected_rows=[],
-            page_action="native",
-            #page_action='none',
-            page_current= 0,
-            page_size= 10,
-            style_table={'overflowX': 'scroll',
-                         'overflowY': 'auto',
-                         #'height': '415px',
-                         },
-            style_cell={
-                'height': 'auto',
-                'textAlign': 'center',
-                'minWidth': '200px', 
-                #'width': '140px',
-                # 'maxWidth': '220px',
-                'whiteSpace': 'normal',
-                },
+            data=df1_summary.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df1_summary.columns],
+            
+            page_action='none',
+            style_table={'height': '400px', 'overflowY': 'auto'}
         )
+        
         del df
         #del df1_summary
         
@@ -3142,34 +3037,11 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         
         
         dashT2 = dash_table.DataTable(
-            columns=[{"name": i, "id": i, "deletable": False, "selectable": False} for i in df4.columns],
-            data = df4.to_dict('records'),
-            editable=False,
-            #filter_action="native",
-            #sort_action="native",
-            #sort_action=None,
-            #sort_mode="multi",
-            #column_selectable="single",
-            #row_selectable="multi",
-            #row_deletable=False,
-            selected_columns=[],
-            selected_rows=[],
-            page_action="native",
-            #page_action='none',
-            page_current= 0,
-            page_size= 10,
-            style_table={'overflowX': 'scroll',
-                         'overflowY': 'auto',
-                         #'height': '415px',
-                         },
-            style_cell={
-                'height': 'auto',
-                'textAlign': 'center',
-                'minWidth': '200px', 
-                #'width': '140px',
-                # 'maxWidth': '220px',
-                'whiteSpace': 'normal',
-                },
+            data=df4.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df4.columns],
+            
+            page_action='none',
+            style_table={'height': '225px', 'overflowY': 'auto'}
         )
         
         txt1 = "This plot allows you to interpret patterns in the regression model's success. Example: If points are consistently above the 1:1 line, then the observed values are always greater than the predicted values. If the relationship is curved and performance is weak, then try rescaling some of your variables (via log, square root, etc.)."
@@ -3228,33 +3100,11 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
     df_table['VIF'] = [np.nan]*10
     
     dashT1 = dash_table.DataTable(
-        columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df_table.columns],
-        data = df_table.to_dict('records'),
-        editable=False,
-        #filter_action="native",
-        sort_action="native",
-        sort_mode="multi",
-        #column_selectable="single",
-        #row_selectable="multi",
-        row_deletable=False,
-        selected_columns=[],
-        selected_rows=[],
-        page_action="native",
-        #page_action='none',
-        page_current= 0,
-        page_size= 10,
-        style_table={'overflowX': 'scroll',
-                     'overflowY': 'auto',
-                     #'height': '415px',
-                     },
-        style_cell={
-            'height': 'auto',
-            'textAlign': 'center',
-            'minWidth': '200px', 
-            #'width': '140px',
-            # 'maxWidth': '220px',
-            'whiteSpace': 'normal',
-            },
+        data=df_table.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table.columns],
+        
+        page_action='none',
+        style_table={'height': '400px', 'overflowY': 'auto'}
     )
     
     
@@ -3267,33 +3117,11 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
     df_table['feature 1'] = [np.nan]*10
     
     dashT2 = dash_table.DataTable(
-        columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df_table.columns],
-        data = df_table.to_dict('records'),
-        editable=False,
-        #filter_action="native",
-        sort_action="native",
-        sort_mode="multi",
-        #column_selectable="single",
-        #row_selectable="multi",
-        row_deletable=False,
-        selected_columns=[],
-        selected_rows=[],
-        page_action="native",
-        #page_action='none',
-        page_current= 0,
-        page_size= 10,
-        style_table={'overflowX': 'scroll',
-                     'overflowY': 'auto',
-                     #'height': '415px',
-                     },
-        style_cell={
-            'height': 'auto',
-            'textAlign': 'center',
-            'minWidth': '200px', 
-            #'width': '140px',
-            # 'maxWidth': '220px',
-            'whiteSpace': 'normal',
-            },
+        data=df_table.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table.columns],
+        
+        page_action='none',
+        style_table={'height': '500px', 'overflowY': 'auto'}
     )
     
     if main_df is None:
@@ -3512,64 +3340,21 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         )
         
     dashT1 = dash_table.DataTable(
-            columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in df1_summary.columns],
-            data = df1_summary.to_dict('records'),
-            editable=False,
-            #filter_action="native",
-            sort_action="native",
-            sort_mode="multi",
-            #column_selectable="single",
-            #row_selectable="multi",
-            row_deletable=False,
-            selected_columns=[],
-            selected_rows=[],
-            page_action="native",
-            #page_action='none',
-            page_current= 0,
-            page_size= 10,
-            style_table={'overflowX': 'scroll',
-                         'overflowY': 'auto',
-                         #'height': '415px',
-                         },
-            style_cell={
-                'height': 'auto',
-                'textAlign': 'center',
-                'minWidth': '200px', 
-                #'width': '140px',
-                # 'maxWidth': '220px',
-                'whiteSpace': 'normal',
-                },
-        )
+        data=df1_summary.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df1_summary.columns],
+        
+        page_action='none',
+        style_table={'height': '300px', 'overflowY': 'auto'}
+    )
         
     
     dashT2 = dash_table.DataTable(
-        columns=[{"name": i, "id": i, "deletable": False, "selectable": True} for i in pred_df.columns],
-        data = pred_df.to_dict('records'),
-        editable=False,
-        #filter_action="native",
-        sort_action="native",
-        sort_mode="multi",
-        #column_selectable="single",
-        #row_selectable="multi",
-        row_deletable=False,
-        selected_columns=[],
-        selected_rows=[],
-        page_action="native",
-        #page_action='none',
-        page_current= 0,
-        page_size= 10,
-        style_table={'overflowX': 'scroll',
-                     'overflowY': 'auto',
-                     #'height': '415px',
-                     },
-        style_cell={
-            'height': 'auto',
-            'textAlign': 'center',
-            'minWidth': '200px', 
-            #'width': '140px',
-            # 'maxWidth': '220px',
-            'whiteSpace': 'normal',
-            },
+        data=pred_df.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in pred_df.columns],
+        
+        virtualization=True,
+        page_action='none',
+        style_table={'height': '500px', 'overflowY': 'auto'}
     )
         
     txt1 = "This table pertains to the fitted model. This model predicts the probability of an observation being a positive (1) instead of a negative (0). All this is before applying a diagnositic threshold, i.e., the point where we count an estimated probability as a 0 or a 1. The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates that a predictor variable is significantly correlated with one or more other predictors. VIF > 10 indicates severe multicollinearity, which can lead to overfitting and inaccurate parameter estimates. If your VIF's are high, trying removing some of those variables."
