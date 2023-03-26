@@ -1,11 +1,9 @@
-from uuid import uuid4
 import dash
 from dash import dcc
 from dash import html
 from dash.dependencies import Input, Output, State
 from dash import dash_table
 import dash_bootstrap_components as dbc
-from dash.long_callback import DiskcacheLongCallbackManager
 #from dash.exceptions import PreventUpdate
 
 import pandas as pd
@@ -32,29 +30,18 @@ from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_prec
 from sklearn.feature_selection import RFECV
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-warnings.filterwarnings('ignore')
-pd.set_option('display.max_columns', None)
-
 #########################################################################################
 ################################# CONFIG APP ############################################
 #########################################################################################
 
-## Diskcache
-import diskcache
-launch_uid = uuid4()
-cache = diskcache.Cache("./cache")
-long_callback_manager = DiskcacheLongCallbackManager(
-    cache, cache_by=[lambda: launch_uid], expire=60,
-)
-
 FONT_AWESOME = "https://use.fontawesome.com/releases/v5.10.2/css/all.css"
+
+warnings.filterwarnings('ignore')
+pd.set_option('display.max_columns', None)
 
 external_stylesheets=[dbc.themes.BOOTSTRAP, FONT_AWESOME]
 
-app = dash.Dash(__name__, 
-                external_stylesheets=external_stylesheets,
-                long_callback_manager=long_callback_manager)
-
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 app.config.suppress_callback_exceptions = True
 server = app.server
 
@@ -306,6 +293,7 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     
     ########## RFECV ############
     model = LinearRegression()
+    
     rfecv = RFECV(model, step=1)
     rfecv = rfecv.fit(X_train, y_train)
     
@@ -360,19 +348,7 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     
     vifs = [variance_inflation_factor(X_train.values, j) for j in range(X_train.shape[1])]
     
-    methods = ['bonf']#, 'sidak', 'holm-sidak',
-               #'holm', 'simes-hochberg', 'hommel',
-               #'fdr_bh', 'fdr_by']
-
-    outlier_df = results.outlier_test(method='bonf', alpha=0.05)
-    
-    colors = []
-    for i in outlier_df['bonf(p)'].tolist():
-        if i < 1.0:
-            colors.append("#ff0000")
-        else:
-            colors.append("#3399ff")
-    
+    colors = ["#3399ff"]*len(y_train)
     cols = ['Parameter', 'coef', 'std err', 't', 'P>|t|', '[0.025]', '[0.975]']
     df_table = pd.DataFrame(columns=cols)
     df_table['Parameter'] = df1_summary.index.tolist()
@@ -1417,7 +1393,7 @@ def generate_figure_3():
                         type="default",
                         fullscreen=False,
                         children=html.Div(id="figure3",
-                            children=[dcc.Graph(id="figure_plot3"),
+                            children=[dcc.Graph(id='figure_plot3'),
                                     ],
                                 ),
                         ),
@@ -2861,7 +2837,7 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
 
 
 
-@app.callback(output=[Output('figure_plot3', 'figure'),
+@app.callback([Output('figure_plot3', 'figure'),
                Output('table_plot3a', 'children'),
                Output('table_plot3b', 'children'),
                Output('rt1', 'children'),
@@ -2869,18 +2845,13 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                Output('fig3txt', 'children'),
                Output('tab3btxt', 'children'),
                Output('btn_ss2', 'n_clicks')],
-              inputs=[Input('btn3', 'n_clicks'),
-               Input('btn_ss2', 'n_clicks'),
-               State('xvar3', 'value'),
+              [Input('btn3', 'n_clicks'),
+               Input('btn_ss2', 'n_clicks')],
+              [State('xvar3', 'value'),
                State('yvar3', 'value'),
                State('main_df', 'data'),
                State('cat_vars', 'children'),
                State('rfecv', 'value')],
-              running=[
-                (Output("btn3", "disabled"), True, False),
-                (Output("btn_ss2", "disabled"), False, True),
-                ],
-              prevent_initial_call=True
         )
 def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
     
