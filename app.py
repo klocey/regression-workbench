@@ -1876,53 +1876,49 @@ def update_data_table1(main_df):
     if main_df is None:
         cols = ['feature 1', 'feature 2', 'feature 3']
         df_table = pd.DataFrame(columns=cols)
-        df_table['feature 1'] = [np.nan]*7
-        df_table['feature 2'] = [np.nan]*7
-        df_table['feature 3'] = [np.nan]*7
+        df_table['feature 1'] = [np.nan]*10
+        df_table['feature 2'] = [np.nan]*10
+        df_table['feature 3'] = [np.nan]*10
         
         dashT = dash_table.DataTable(
             data = df_table.to_dict('records'),
             columns = [{'id': c, 'name': c} for c in df_table.columns],
-            page_action = 'none',
-            style_table = {'height': '250px', 'overflowY': 'auto'},
-            style_cell={
-                'height': 'auto',
-                'textAlign': 'center',
-                'minWidth': '200px', 
-                #'width': '140px',
-                # 'maxWidth': '220px',
-                'whiteSpace': 'normal',
-                },
+            
+            virtualization=True,
+            
+            style_table={'height': '255px', 
+                         'overflowY': 'auto',
+                         'horizontalAligment':'center',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140',
+                        'maxwidth':'300',
+                        },
         )
         return dashT
         
     else:
         main_df = pd.read_json(main_df)
+        main_df = main_df.round(decimals=4)
         dashT = dash_table.DataTable(
             data=main_df.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in main_df.columns],
-            
+            fixed_rows={'headers': True},
             virtualization=True,
             page_action='none',
-            editable=False,
-            #filter_action="native",
             sort_action="native",
             sort_mode="multi",
-            #column_selectable="single",
-            #row_selectable="multi",
-            row_deletable=False,
-            selected_columns=[],
-            selected_rows=[],
             
-            style_table={'height': '250px', 'overflowY': 'auto'},
-            style_cell={
-                'height': 'auto',
-                'textAlign': 'center',
-                'minWidth': '200px', 
-                #'width': '140px',
-                # 'maxWidth': '220px',
-                'whiteSpace': 'normal',
-                },
+            style_table={'height': '250px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'160px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
         )
         
         return dashT
@@ -2425,7 +2421,20 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
                 columns=[{'id': c, 'name': c} for c in df_table.columns],
                 
                 page_action='none',
-                style_table={'height': '500px', 'overflowY': 'auto'}
+                sort_action="native",
+                sort_mode="multi",
+                filter_action="native",
+                
+                style_table={'height': '500px', 
+                             'overflowY': 'auto',
+                             },
+                style_cell={'padding':'5px',
+                            #'minwidth':'140px',
+                            'width':'160px',
+                            #'maxwidth':'140px',
+                            'whiteSpace':'normal',
+                            'textAlign': 'center',
+                            },
             )
     
             del df_models
@@ -2868,7 +2877,20 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         columns=[{'id': c, 'name': c} for c in df_table1.columns],
         
         page_action='none',
-        style_table={'height': '300px', 'overflowY': 'auto'}
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    #'minwidth':'140px',
+                    'width':'160px',
+                    #'maxwidth':'140px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
     )
     
     cols = ['Parameter', 'coef', 'std err', 'z', 'P>|z|', '[0.025]', '[0.975]', 'VIF']
@@ -2886,7 +2908,20 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         columns=[{'id': c, 'name': c} for c in df_table2.columns],
         
         page_action='none',
-        style_table={'height': '300px', 'overflowY': 'auto'}
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    #'minwidth':'140px',
+                    'width':'160px',
+                    #'maxwidth':'140px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
     )
     
     if df is None:
@@ -3002,7 +3037,20 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
             columns=[{'id': c, 'name': c} for c in df1_summary.columns],
             
             page_action='none',
-            style_table={'height': '400px', 'overflowY': 'auto'}
+            sort_action="native",
+            sort_mode="multi",
+            filter_action="native",
+            
+            style_table={'height': '500px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        #'minwidth':'140px',
+                        'width':'160px',
+                        #'maxwidth':'140px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
         )
         
         del df
@@ -3041,7 +3089,20 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
             columns=[{'id': c, 'name': c} for c in df4.columns],
             
             page_action='none',
-            style_table={'height': '225px', 'overflowY': 'auto'}
+            sort_action="native",
+            sort_mode="multi",
+            #filter_action="native",
+            
+            style_table={'height': '225px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        #'minwidth':'140px',
+                        'width':'160px',
+                        #'maxwidth':'140px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
         )
         
         txt1 = "This plot allows you to interpret patterns in the regression model's success. Example: If points are consistently above the 1:1 line, then the observed values are always greater than the predicted values. If the relationship is curved and performance is weak, then try rescaling some of your variables (via log, square root, etc.)."
@@ -3104,7 +3165,20 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         columns=[{'id': c, 'name': c} for c in df_table.columns],
         
         page_action='none',
-        style_table={'height': '400px', 'overflowY': 'auto'}
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '500px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    #'minwidth':'140px',
+                    'width':'160px',
+                    #'maxwidth':'140px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
     )
     
     
@@ -3121,7 +3195,20 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         columns=[{'id': c, 'name': c} for c in df_table.columns],
         
         page_action='none',
-        style_table={'height': '500px', 'overflowY': 'auto'}
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '500px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    #'minwidth':'140px',
+                    'width':'160px',
+                    #'maxwidth':'140px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
     )
     
     if main_df is None:
@@ -3344,7 +3431,20 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         columns=[{'id': c, 'name': c} for c in df1_summary.columns],
         
         page_action='none',
-        style_table={'height': '300px', 'overflowY': 'auto'}
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '500px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    #'minwidth':'140px',
+                    'width':'160px',
+                    #'maxwidth':'140px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
     )
         
     
@@ -3354,7 +3454,20 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         
         virtualization=True,
         page_action='none',
-        style_table={'height': '500px', 'overflowY': 'auto'}
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '500px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    #'minwidth':'140px',
+                    'width':'160px',
+                    #'maxwidth':'140px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
     )
         
     txt1 = "This table pertains to the fitted model. This model predicts the probability of an observation being a positive (1) instead of a negative (0). All this is before applying a diagnositic threshold, i.e., the point where we count an estimated probability as a 0 or a 1. The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates that a predictor variable is significantly correlated with one or more other predictors. VIF > 10 indicates severe multicollinearity, which can lead to overfitting and inaccurate parameter estimates. If your VIF's are high, trying removing some of those variables."
@@ -3395,4 +3508,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
