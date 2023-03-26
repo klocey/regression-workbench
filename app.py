@@ -383,6 +383,7 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     aics = []
     llf_ls = []
     PredY = []
+    PredProb = []
     Ys = []
             
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -399,7 +400,6 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
         y = y_o.tolist()
         slope, intercept, r, p, se = stats.linregress(x, y)
         if r**2 == 1.0:
-            #print('remove perfect correlate:', xvar)
             perfect_correlates.append(xvar)
     x_o.drop(labels=perfect_correlates, axis=1, inplace=True)
     
@@ -408,7 +408,6 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     for xvar in list(x_o):
         x = len(list(set(x_o[xvar].tolist())))
         if x == 1:
-            #print('remove singularity:', xvar)
             singularities.append(xvar)
     x_o.drop(labels=singularities, axis=1, inplace=True)
     
@@ -514,28 +513,49 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     #df['predicted probability'] = ypred
     
     ####### ROC CURVE #######################################
-    fpr, tpr, thresholds = roc_curve(y_o, ypred, pos_label=1)
+    fpr, tpr, thresholds_roc = roc_curve(y_o, ypred, pos_label=1)
     auroc = auc(fpr, tpr)
             
     ####### PRECISION-RECALL CURVE ##############################################
-    ppv, recall, thresholds_ppv = precision_recall_curve(y_o, ypred, pos_label=1)
+    ppv, recall, thresholds_prc = precision_recall_curve(y_o, ypred, pos_label=1)
     auprc = average_precision_score(y_o, ypred, pos_label=1)
-            
-    dist = np.sqrt((fpr - 0)**2 + (tpr - 1)**2)
-    dist = dist.tolist()
-    thresholds = thresholds.tolist()
-    di = dist.index(min(dist))
-    t = thresholds[di]
+    
+    ####### 
+    dist1 = np.sqrt((fpr - 0)**2 + (tpr - 1)**2)
+    dist1 = dist1.tolist()
+    di1 = dist1.index(np.nanmin(dist1))
+    thresholds_roc = thresholds_roc.tolist()
+    opt_roc_threshold = thresholds_roc[di1]
+    
+    dist2 = np.sqrt((ppv - 1)**2 + (recall - 1)**2)
+    dist2 = dist2.tolist()
+    di2 = dist2.index(np.nanmin(dist2))
+    thresholds_prc = thresholds_prc.tolist()
+    opt_prc_threshold = thresholds_prc[di2]
+    
+    opt_threshold = (opt_roc_threshold + opt_prc_threshold)/2
+    
+    dif = np.abs(np.array(thresholds_roc) - opt_threshold).tolist()
+    di = dif.index(np.nanmin(dif))
+    opt_tpr = tpr[di]
+    opt_fpr = fpr[di]
+    
+    dif = np.abs(np.array(thresholds_prc) - opt_threshold).tolist()
+    di = dif.index(np.nanmin(dif))
+    opt_ppv = ppv[di]
+    
+    df['Predicted probability'] = ypred
+    
     ypred2 = []
     for i in ypred:
-        if i < t:
+        if i < opt_threshold:
             ypred2.append(0)
         else:
             ypred2.append(1)
     ypred = list(ypred2)
     
-    df['Prediction'] = ypred
-    
+    lab = 'Binary prediction (optimal threshold =' + str(round(opt_threshold, 6)) + ')'
+    df[lab] = ypred
     coefs.append(model.params[0])
                     
     pr2 = model.prsquared
@@ -573,10 +593,14 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     df_models['auprc'] = [auprc]
     df_models['auroc'] = [auroc]
     df_models['pred_y'] = PredY
+    df_models['pred_prob'] = [PredProb]
     df_models['prc_null'] = [prc_null]
-    #df_models['intercept'] = intercepts
+    df_models['optimal_threshold'] = [opt_threshold]
+    df_models['optimal_tpr'] = [opt_tpr]
+    df_models['optimal_fpr'] = [opt_fpr]
+    df_models['optimal_ppv'] = [opt_ppv]
     df_models['coefficients'] = coefs
-            
+    
     #df_models = df_models.replace('_', ' ', regex=True)
     #for col in list(df_models):
     #    col2 = col.replace("_", " ")
@@ -587,7 +611,10 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     #col = df.pop('probability of ')
     #df.insert(0, col.name, col)
     
-    col = df.pop('Prediction')
+    col = df.pop('Predicted probability')
+    df.insert(0, col.name, col)
+    
+    col = df.pop(lab)
     df.insert(0, col.name, col)
     
     col = df.pop(yvar)
@@ -3223,9 +3250,6 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
     
     main_df = pd.read_json(main_df)
     
-    print(yvar)
-    print(list(main_df))
-    
     y_prefix = str(yvar)
     if ':' in yvar:
         y_prefix = yvar[:yvar.index(":")]
@@ -3243,10 +3267,6 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
     main_df, dropped, cat_vars_ls = dummify_logistic(main_df, vars_, y_prefix, True)
     
     if yvar not in list(main_df):
-        
-        print('Error:')
-        print(yvar)
-        print(list(main_df))
         
         return {}, {}, dashT1, dashT2, "Error: Choose a feature for your response variable", [0], "", "", "", "", 0
     
@@ -3287,7 +3307,13 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
     auprc = auprc[0]
     prc_null = models_df['prc_null'].tolist()
     prc_null = prc_null[0]
-        
+    
+    opt_threshold = models_df['optimal_threshold'].iloc[0]
+    opt_threshold = 'Optimal threshold: ' + str(round(opt_threshold, 6))
+    opt_tpr = models_df['optimal_tpr'].iloc[0]
+    opt_fpr = models_df['optimal_fpr'].iloc[0]
+    opt_ppv = models_df['optimal_ppv'].iloc[0]
+    
     fig_data = []
     fig_data.append(
         go.Scatter(
@@ -3297,6 +3323,17 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
             name = 'AUC = ' + str(np.round(auroc,3)),
             opacity = 0.75,
             line = dict(color = "#0066ff", width = 2),
+            )
+        )
+    
+    fig_data.append(
+        go.Scatter(
+            x = [opt_fpr],
+            y = [opt_tpr],
+            mode = "markers",
+            name = 'optimum',
+            text = [opt_threshold],
+            marker = dict(color = "#0066ff", size = 20),
             )
         )
                     
@@ -3363,14 +3400,24 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
             line = dict(color = "#0066ff", width = 2),
             )
         )
-                    
+    
+    fig_data.append(
+        go.Scatter(
+            x = [opt_tpr],
+            y = [opt_ppv],
+            mode = "markers",
+            name = 'optimum',
+            text = [opt_threshold],
+            marker = dict(color = "#0066ff", size = 20),
+        )
+    )
+                
     fig_data.append(
             go.Scatter(
                 x = [0, 1],
                 y = [prc_null, prc_null],
                 mode = "lines",
                 name = 'Null AUC = ' + str(np.round(prc_null, 3)),
-                opacity = 0.75,
                 line = dict(color = "#737373", width = 1),
             )
         )
