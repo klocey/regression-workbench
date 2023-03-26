@@ -1,9 +1,11 @@
+from uuid import uuid4
 import dash
 from dash import dcc
 from dash import html
 from dash.dependencies import Input, Output, State
 from dash import dash_table
 import dash_bootstrap_components as dbc
+from dash.long_callback import DiskcacheLongCallbackManager
 #from dash.exceptions import PreventUpdate
 
 import pandas as pd
@@ -30,18 +32,29 @@ from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_prec
 from sklearn.feature_selection import RFECV
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+warnings.filterwarnings('ignore')
+pd.set_option('display.max_columns', None)
+
 #########################################################################################
 ################################# CONFIG APP ############################################
 #########################################################################################
 
-FONT_AWESOME = "https://use.fontawesome.com/releases/v5.10.2/css/all.css"
+## Diskcache
+import diskcache
+launch_uid = uuid4()
+cache = diskcache.Cache("./cache")
+long_callback_manager = DiskcacheLongCallbackManager(
+    cache, cache_by=[lambda: launch_uid], expire=60,
+)
 
-warnings.filterwarnings('ignore')
-pd.set_option('display.max_columns', None)
+FONT_AWESOME = "https://use.fontawesome.com/releases/v5.10.2/css/all.css"
 
 external_stylesheets=[dbc.themes.BOOTSTRAP, FONT_AWESOME]
 
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app = dash.Dash(__name__, 
+                external_stylesheets=external_stylesheets,
+                long_callback_manager=long_callback_manager)
+
 app.config.suppress_callback_exceptions = True
 server = app.server
 
@@ -2848,7 +2861,7 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
 
 
 
-@app.callback([Output('figure_plot3', 'figure'),
+@app.callback(output=[Output('figure_plot3', 'figure'),
                Output('table_plot3a', 'children'),
                Output('table_plot3b', 'children'),
                Output('rt1', 'children'),
@@ -2856,13 +2869,18 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                Output('fig3txt', 'children'),
                Output('tab3btxt', 'children'),
                Output('btn_ss2', 'n_clicks')],
-              [Input('btn3', 'n_clicks'),
-               Input('btn_ss2', 'n_clicks')],
-              [State('xvar3', 'value'),
+              inputs=[Input('btn3', 'n_clicks'),
+               Input('btn_ss2', 'n_clicks'),
+               State('xvar3', 'value'),
                State('yvar3', 'value'),
                State('main_df', 'data'),
                State('cat_vars', 'children'),
                State('rfecv', 'value')],
+              running=[
+                (Output("btn3", "disabled"), True, False),
+                (Output("btn_ss2", "disabled"), False, True),
+                ],
+              prevent_initial_call=True
         )
 def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
     
@@ -3508,4 +3526,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
