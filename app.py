@@ -3022,11 +3022,11 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         miny = min([min(y_train), min(y_pred)])
         maxy = max([max(y_train), max(y_pred)])
         
-        fig_data.append(go.Scatter(x = y_pred_nonoutliers, y = y_train_nonoutliers, name = 'Non-outliers',
+        fig_data.append(go.Scatter(x = y_pred_nonoutliers, y = y_train_nonoutliers, name = 'Obs vs Pred',
                 mode = "markers", opacity = 0.75, marker = dict(size=10, color="#3399ff")))
         
-        fig_data.append(go.Scatter(x = y_pred_outliers, y = y_train_outliers, name = 'Outliers',
-                mode = "markers", opacity = 0.75, marker = dict(size=10, color="#ff0000")))
+        #fig_data.append(go.Scatter(x = y_pred_outliers, y = y_train_outliers, name = 'Outliers',
+        #        mode = "markers", opacity = 0.75, marker = dict(size=10, color="#ff0000")))
         
         fig_data.append(go.Scatter(x = [miny, maxy], y = [miny, maxy], name = '1:1, r<sup>2</sup> = ' + str(r2_obs_pred),
             mode = "lines", opacity = 0.75, line = dict(color = "#595959", width = 1, dash='dash'),))
@@ -3034,12 +3034,12 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
         figure = go.Figure(data = fig_data,
             layout = go.Layout(
                 xaxis = dict(title = dict(
-                        text = "<b>" + 'Predicted ' + yvar + "</b>",
+                        text = "<b>" + 'Predicted:  ' + yvar + "</b>",
                         font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
                             " Helvetica, Arial, sans-serif", size = 18,),), showticklabels = True,),
                                             
                 yaxis = dict(title = dict(
-                        text = "<b>" + yvar + "</b>",
+                        text = "<b>" + 'Observed:  ' + yvar + "</b>",
                         font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
                             " Helvetica, Arial, sans-serif",size = 18,),),showticklabels = True,),
                                             
@@ -3544,4 +3544,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
