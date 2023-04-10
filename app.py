@@ -155,6 +155,30 @@ def smart_scale(df, predictors, responses):
                     best_lab = '(' + i + ')^2'
                     t_vals = st
                 
+                # cube root transformation
+                crt = df[i]**(1/3)
+                new_skew = stats.skew(crt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^1/3'
+                    t_vals = crt
+                
+                # cube transformation
+                cut = df[i]**(3)
+                new_skew = stats.skew(cut, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^3'
+                    t_vals = cut
+                    
+                # exponential transformation
+                et = np.exp(df[i])
+                new_skew = stats.skew(et, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = 'e^(' + i + ')'
+                    t_vals = et
+                
             elif np.nanmin(df[i]) > 0:
                 lt = np.log10(df[i])
                 new_skew = stats.skew(lt, nan_policy='omit')
@@ -178,6 +202,30 @@ def smart_scale(df, predictors, responses):
                     best_skew = float(new_skew)
                     best_lab = '(' + i + ')^2'
                     t_vals = st
+                
+                # cube root transformation
+                crt = df[i]**(1/3)
+                new_skew = stats.skew(crt, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^1/3'
+                    t_vals = crt
+                    
+                # cube transformation
+                cut = df[i]**(3)
+                new_skew = stats.skew(cut, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = '(' + i + ')^3'
+                    t_vals = cut
+                    
+                # exponential transformation
+                et = np.exp(df[i])
+                new_skew = stats.skew(et, nan_policy='omit')
+                if np.abs(new_skew) < best_skew:
+                    best_skew = float(new_skew)
+                    best_lab = 'e^(' + i + ')'
+                    t_vals = et
             
             
             df[i] = list(t_vals)
@@ -208,6 +256,9 @@ def dummify(df, cat_vars, dropone=True):
         df[i] = df[i].replace(r"^ +| +$", r"", regex=True)
         
         one_hot = pd.get_dummies(df[i])
+        if one_hot.shape[1] > 10:
+            one_hot = one_hot[one_hot.sum().sort_values(ascending=False).index[:10]]
+            
         one_hot = one_hot.add_prefix(i + ':')
         ls2 = list(one_hot)
         
@@ -223,7 +274,7 @@ def dummify(df, cat_vars, dropone=True):
             
             one_hot.drop(labels=[lab], axis = 1, inplace=True)
             dropped.append(lab)
-            
+             
         labs = list(one_hot)
         cat_var_ls.append(labs)
         df = df.join(one_hot)
@@ -436,31 +487,32 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
             break
             
     ########## RFECV ############
-    model = LogisticRegression()
-    try:
-        rfecv = RFECV(model, step=1, min_features_to_select=2)
-        rfecv = rfecv.fit(x_o, y_o)
+    if x_o.shape[1] > 100:
+        model = LogisticRegression()
+        try:
+            rfecv = RFECV(model, step=1, min_features_to_select=2)
+            rfecv = rfecv.fit(x_o, y_o)
+            
+            #support = rfecv.support_
+            ranks = rfecv.ranking_
+            xlabs = rfecv.feature_names_in_
+            
+            supported_features = []
+            unsupported = []
+            
+            for i, lab in enumerate(xlabs):
+                if ranks[i] == 1:
+                    supported_features.append(lab)
+                else:
+                    unsupported.append(lab)
+            
+            #if len(supported_features) >= 2:
+            #    if rfe_val == 'Yes':
+                    #X_train = X_train.filter(items = supported_features, axis=1)
         
-        #support = rfecv.support_
-        ranks = rfecv.ranking_
-        xlabs = rfecv.feature_names_in_
-        
-        supported_features = []
-        unsupported = []
-        
-        for i, lab in enumerate(xlabs):
-            if ranks[i] == 1:
-                supported_features.append(lab)
-            else:
-                unsupported.append(lab)
-        
-        #if len(supported_features) >= 2:
-        #    if rfe_val == 'Yes':
-                #X_train = X_train.filter(items = supported_features, axis=1)
-    
-        x_o = x_o.filter(items = supported_features, axis=1)
-    except:
-        pass
+            x_o = x_o.filter(items = supported_features, axis=1)
+        except:
+            pass
     
     model = 0
     x_o_lm = sm.add_constant(x_o, has_constant='add')
@@ -679,7 +731,7 @@ def control_card_upload():
             dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters. Also, if you upload an Excel file and it doesn't load, then it likely has special formatting. If this happens, save your file as a csv and upload that.", target="target1",
                 style = {'font-size': 12},
                 ),
-            html.P("Your file (csv or Excel) must only have rows, columns, and column headers. Excel files must have one sheet and no special formatting."),
+            html.P("Your file (.csv, .xlsx) should have a simple format: rows, columns, one row of column headers. Excel files must only have one sheet and no special formatting."),
             dcc.Upload(
                 id='upload-data',
                 children=html.Div([
@@ -696,7 +748,7 @@ def control_card_upload():
                 },
                 multiple=False
             ),
-            html.P("Data are deleted when the app is closed, refreshed, or when another file is uploaded. Regardless, do not upload sensitive data."),
+            html.P("Data are deleted when the app is refreshed, closed, or when another file is uploaded. Still, do not upload sensitive data."),
         ],
     )
 
@@ -1190,7 +1242,7 @@ def control_card4():
                        style={'display': 'inline-block', 'width': '52%'},),
                 html.I(className="fas fa-question-circle fa-lg", id="target_SLR_vars2",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#bfbfbf'},),
-                dbc.Tooltip("To improve efficiency, predictors that are 95% zeros will be removed from analysis. Highly multicollinear predictors are also removed during analysis, as are predictors that are perfect correlates of the response variable and any predictor variable that only has one value. The app attempts to use recursive feature elimination to remove statistically unimportant variables.", target="target_SLR_vars2", style = {'font-size': 12},),
+                dbc.Tooltip("To improve efficiency, predictors that are 95% zeros will be removed from analysis. Highly multicollinear predictors are also removed during analysis, as are predictors that are perfect correlates of the response variable and any predictor variable that only has one value. If the number of resulting features is greater than 100, the app will use recursive feature elimination to remove statistically unimportant variables.", target="target_SLR_vars2", style = {'font-size': 12},),
                 
                 html.Hr(),
                 
@@ -1614,13 +1666,15 @@ app.layout = html.Div([
                     type="default",
                     fullscreen=False,
                     children=html.Div(id="data_table1",
-                        children=[html.H5("Data Table", style={'display': 'inline-block', 'width': '11.5%'},
+                        children=[html.H5("Data Table", style={'display': 'inline-block', 'width': '12.5%'},
                                           ),
                                   html.I(className="fas fa-question-circle fa-lg", id="target_DataTable",
                                       style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},
                                       ),
                                   dbc.Tooltip("Use this table to ensure your data uploaded as expected. Note, any dataset containing more than 5K rows or 50 columns will be randomly sampled to meet those constraints.", target="target_DataTable",
-                                        style = {'font-size': 12, 'display': 'inline-block'},
+                                        style = {'font-size': 12, 
+                                                 #'display': 'inline-block',
+                                                 },
                                         ),
                                   
                                   html.P("", id='rt4'),
@@ -1629,7 +1683,7 @@ app.layout = html.Div([
                             ),
                 ],
                 style={'width': '69.3%',
-                        'height': '328px',
+                        'height': '352.5px',
                         'display': 'inline-block',
                         'border-radius': '15px',
                         'box-shadow': '1px 1px 1px grey',
@@ -1850,6 +1904,7 @@ def update_output1(list_of_contents, list_of_names, list_of_dates):
         cat_vars = []
         dichotomous_numerical_vars = []
         variables = list(df)
+        ct = 1
         for i in variables:
             
             if ' date ' in i or ' DATE ' in i or ' Date ' in i or ' date' in i or ' DATE' in i or ' Date' in i or '_date_' in i or '_DATE_' in i or '_Date_' in i or '_date' in i or '_DATE' in i or '_Date' in i or ',date' in i or ',DATE' in i or ',Date' in i or ';date' in i or ';DATE' in i or ';Date' in i:
@@ -1857,8 +1912,10 @@ def update_output1(list_of_contents, list_of_names, list_of_dates):
                 continue
             
             if 'Unnamed:' in i:
-                df.drop(labels = [i], axis=1, inplace=True)
-                continue
+                new_lab = 'Unnamed: ' + str(ct)
+                df.rename(columns={i: new_lab}, inplace=True)
+                i = new_lab
+                ct += 1
             
             df['temp'] = pd.to_numeric(df[i], errors='coerce')
             df['temp'].fillna(df[i], inplace=True)
@@ -1902,7 +1959,7 @@ def update_data_table1(main_df):
             
             virtualization=True,
             
-            style_table={'height': '255px', 
+            style_table={'height': '275px', 
                          'overflowY': 'auto',
                          'horizontalAligment':'center',
                          },
@@ -1925,7 +1982,7 @@ def update_data_table1(main_df):
             sort_action="native",
             sort_mode="multi",
             
-            style_table={'height': '250px', 
+            style_table={'height': '275px', 
                          'overflowY': 'auto',
                          },
             style_cell={'padding':'5px',
