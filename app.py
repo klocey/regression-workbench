@@ -728,7 +728,7 @@ def control_card_upload():
             html.I(className="fas fa-question-circle fa-lg", id="target1",
                 style={'display': 'inline-block', 'width': '20px', 'color':'#99ccff'},
                 ),
-            dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters. Also, if you upload an Excel file and it doesn't load, then it likely has special formatting. If this happens, save your file as a csv and upload that.", target="target1",
+            dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", target="target1",
                 style = {'font-size': 12},
                 ),
             html.P("Your file (.csv, .xlsx) should have a simple format: rows, columns, one row of column headers. Excel files must only have one sheet and no special formatting."),
@@ -1856,17 +1856,30 @@ def toggle_modal(n1, n2, is_open):
               [State('upload-data', 'filename'),
                State('upload-data', 'last_modified')],
             )
-def update_output1(list_of_contents, list_of_names, list_of_dates):
+def update_output1(list_of_contents, file_name, list_of_dates):
 
-    error_string = "Error: Your file was not processed. Only upload csv or Excel files. Ensure there are only rows, columns, and column headers, and that your file contains enough data to analyze. Excel files must only have one sheet and no special formatting (frozen panes, etc.)."
-    if list_of_contents is None or list_of_names is None or list_of_dates is None:
+    if list_of_contents is None or file_name is None or list_of_dates is None:
         return None, None, None, ""
+    
+    print(file_name)
+    
+    error_string = ""
+    
+    if file_name[-5:] == '.xlsx':
+        error_string = "Error: Your .xlsx file was not processed. Ensure there are only rows, columns, and one row of column headers. Your file must only have 1 sheet and no special formatting. If you continue to have issue with your file then save it as a .csv file and upload that."
+    
+    elif file_name[-4:] == '.csv':
+        error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
+    
+    elif file_name[-4:] != '.csv' or file_name[-5:] != '.xlsx':
+        error_string = "Error: This application only accepts files with .csv and .xlsx file extensions. Ensure that you're using one of these common extensions and that your file is correctly formatted."
+        return None, None, None, error_string
     
     if list_of_contents is not None:
         children = 0
         df = 0
         try:
-            children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [list_of_names], [list_of_dates])]
+            children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [file_name], [list_of_dates])]
         except:
             return None, None, None, error_string
         
@@ -1969,11 +1982,12 @@ def update_output1(list_of_contents, list_of_names, list_of_dates):
     
 
 @app.callback(Output('data_table_plot1', 'children'),
-              [Input('main_df', 'data')],
+              [Input('main_df', 'data'),
+               Input('rt4', 'children')],
             )
-def update_data_table1(main_df):
+def update_data_table1(main_df, rt4):
         
-    if main_df is None:
+    if main_df is None and rt4 == "":
         cols = ['feature 1', 'feature 2', 'feature 3']
         df_table = pd.DataFrame(columns=cols)
         df_table['feature 1'] = [np.nan]*10
@@ -1985,6 +1999,32 @@ def update_data_table1(main_df):
             columns = [{'id': c, 'name': c} for c in df_table.columns],
             
             virtualization=True,
+            
+            style_table={'height': '275px', 
+                         'overflowY': 'auto',
+                         'horizontalAligment':'center',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140',
+                        'maxwidth':'300',
+                        },
+        )
+        return dashT
+    
+    
+    elif main_df is None and rt4 != "":
+        cols = ['feature 1', 'feature 2', 'feature 3']
+        df_table = pd.DataFrame(columns=cols)
+        df_table['feature 1'] = [np.nan]*10
+        df_table['feature 2'] = [np.nan]*10
+        df_table['feature 3'] = [np.nan]*10
+        
+        dashT = dash_table.DataTable(
+            data = df_table.to_dict('records'),
+            columns = [{'id': c, 'name': c} for c in df_table.columns],
+            
+            virtualization=True,
+            page_size=7,
             
             style_table={'height': '275px', 
                          'overflowY': 'auto',
