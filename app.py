@@ -1858,7 +1858,7 @@ def toggle_modal(n1, n2, is_open):
             )
 def update_output1(list_of_contents, list_of_names, list_of_dates):
 
-    error_string = "Error: Your file was not processed. Only upload csv or Excel files. Ensure there are only rows, columns, and column headers, and that your file contains data. Excel files must only have one sheet and no special formatting (frozen panes, etc.)."
+    error_string = "Error: Your file was not processed. Only upload csv or Excel files. Ensure there are only rows, columns, and column headers, and that your file contains enough data to analyze. Excel files must only have one sheet and no special formatting (frozen panes, etc.)."
     if list_of_contents is None or list_of_names is None or list_of_dates is None:
         return None, None, None, ""
     
@@ -1905,12 +1905,39 @@ def update_output1(list_of_contents, list_of_names, list_of_dates):
         dichotomous_numerical_vars = []
         variables = list(df)
         ct = 1
+        
+        datetime_ls1 = [' date ', ' DATE ', ' Date ', 
+                   ' date', ' DATE', ' Date', 
+                   '_date_', '_DATE_', '_Date_', 
+                   '_date', '_DATE', '_Date', 
+                   ',date', ',DATE', ',Date', 
+                   ';date', ';DATE', ';Date',
+                   '-date', '-DATE', '-Date',
+                   ':date', ':DATE', ':Date',
+                   
+                   ' time ', ' TIME ', ' Time ', 
+                   ' time', ' TIME', ' Time', 
+                   '_time_', '_TIME_', '_Time_', 
+                   '_time', '_TIME', '_Time', 
+                   ',time', ',TIME', ',Time', 
+                   ';time', ';TIME', ';Time',
+                   '-time', '-TIME', '-Time',
+                   ':time', ':TIME', ':Time',
+                   ]
+           
+        datetime_ls2 = ['date', 'DATE', 'Date', 'time', 'TIME', 'Time']          
         for i in variables:
             
-            if ' date ' in i or ' DATE ' in i or ' Date ' in i or ' date' in i or ' DATE' in i or ' Date' in i or '_date_' in i or '_DATE_' in i or '_Date_' in i or '_date' in i or '_DATE' in i or '_Date' in i or ',date' in i or ',DATE' in i or ',Date' in i or ';date' in i or ';DATE' in i or ';Date' in i:
+            if i in datetime_ls2:
                 df.drop(labels = [i], axis=1, inplace=True)
                 continue
             
+            else:
+                for j in datetime_ls2:
+                    if j in i:
+                        df.drop(labels = [i], axis=1, inplace=True)
+                        continue
+
             if 'Unnamed:' in i:
                 new_lab = 'Unnamed: ' + str(ct)
                 df.rename(columns={i: new_lab}, inplace=True)
