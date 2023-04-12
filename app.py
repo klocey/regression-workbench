@@ -1,8 +1,6 @@
 import dash
-from dash import dcc
-from dash import html
+from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
-from dash import dash_table
 import dash_bootstrap_components as dbc
 #from dash.exceptions import PreventUpdate
 
@@ -35,11 +33,12 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 #########################################################################################
 
 FONT_AWESOME = "https://use.fontawesome.com/releases/v5.10.2/css/all.css"
+chriddyp = 'https://codepen.io/chriddyp/pen/bWLwgP.css'
 
 warnings.filterwarnings('ignore')
 pd.set_option('display.max_columns', None)
 
-external_stylesheets=[dbc.themes.BOOTSTRAP, FONT_AWESOME]
+external_stylesheets=[dbc.themes.BOOTSTRAP, FONT_AWESOME, chriddyp]
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 app.config.suppress_callback_exceptions = True
@@ -1401,6 +1400,12 @@ def parse_contents(contents, filename, date):
                 io.StringIO(decoded.decode('utf-8')))
         elif '.xls' in filename:
             df = pd.read_excel(io.BytesIO(decoded))
+            if df is None:
+                df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
+                
+            if df is None:
+                df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
+            
     except Exception as e:
         return html.Div([
             'There was an error processing this file.'
@@ -1864,6 +1869,8 @@ def update_output1(list_of_contents, file_name, list_of_dates):
     print(file_name)
     
     error_string = ""
+    
+    print(file_name[-5:])
     
     if file_name[-5:] == '.xlsx':
         error_string = "Error: Your .xlsx file was not processed. Ensure there are only rows, columns, and one row of column headers. Your file must only have 1 sheet and no special formatting. If you continue to have issue with your file then save it as a .csv file and upload that."
@@ -3668,4 +3675,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
