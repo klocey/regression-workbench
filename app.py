@@ -1620,6 +1620,19 @@ def parse_contents(contents, filename, date):
     content_type, content_string = contents.split(',')
     decoded = base64.b64decode(content_string)
     
+    print('Content Type:')
+    print(content_type)
+    print('\n\n')
+    print('Content String:')
+    print(content_string)
+    print('\n\n')
+    print('Decoded')
+    print(decoded)
+    print('\n\n')
+    print('2 Decoded')
+    print(io.BytesIO(decoded))
+    print('\n\n')
+    
     try:
         if '.csv' == filename[-4:]:
             print(filename)
