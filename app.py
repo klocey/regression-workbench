@@ -1626,19 +1626,19 @@ def parse_contents(contents, filename, date):
                 #io.StringIO(decoded.decode('ISO-8859-1')))
                 io.StringIO(decoded.decode('utf-8')))
         elif '.xls' in filename:
-            try:
-                df = pd.read_excel(io.BytesIO(decoded))
-            except:
-                try:
-                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
-                except:
-                    df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
+            #try:
+            #    df = pd.read_excel(io.BytesIO(decoded))
+            #except:
+            #    try:
+            #        df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
+            #    except:
+            #        df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
                     
-            if df == None or df.shape[0] < 5:
-                df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
-                df['F1'] = list(range([1,10]))
-                df['F2'] = list(range([2,20]))
-                df['F3'] = list(range([3,30]))
+            #if df == None or df.shape[0] < 5:
+            df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
+            df['F1'] = list(range([1,10]))
+            df['F2'] = list(range([2,20]))
+            df['F3'] = list(range([3,30]))
                 
             
     except Exception as e:
