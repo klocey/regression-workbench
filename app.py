@@ -1633,8 +1633,8 @@ def parse_contents(contents, filename, date):
                 print(df.head())
             except:
                 try:
-                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8', engine='xlrd')
-                    df = df.parse(sheet_name = 'Sheet1', index_col = 0)
+                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8', engine='openpyxl')
+                    #df = df.parse(sheet_name = 'Sheet1', index_col = 0)
                     print('it worked 2')
                     print(df.head())
                 except:
