@@ -1627,10 +1627,10 @@ def parse_contents(contents, filename, date):
                 io.StringIO(decoded.decode('utf-8')))
         elif '.xls' in filename:
             try:
-                df = pd.read_excel(io.BytesIO(decoded))
+                df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
             except:
                 try:
-                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
+                    df = pd.read_excel(io.BytesIO(decoded))
                 except:
                     df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
             
