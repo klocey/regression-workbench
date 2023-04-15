@@ -1624,45 +1624,20 @@ def parse_contents(contents, filename, date):
         if '.csv' == filename[-4:]:
             print(filename)
             df = pd.read_csv(io.StringIO(decoded.decode('utf-8'))) #io.StringIO(decoded.decode('ISO-8859-1')))
+        
         elif '.xlsx' == filename[-5:]:
             print('Excel file: ', filename)
             
             try:
-                df = pd.read_excel(io.BytesIO(decoded))
+                df = pd.read_excel(io.BytesIO(decoded), engine=None)
                 print('it worked 1')
                 print(df.head())
             except:
-                try:
-                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8', engine='openpyxl')
-                    #df = df.parse(sheet_name = 'Sheet1', index_col = 0)
-                    print('it worked 2')
-                    print(df.head())
-                except:
-                    try:
-                        df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
-                        print('it worked 3')
-                        print(df.head())
-                    except:
-                        try:                        
-                            file_io = io.BytesIO(decoded)
-                            excel_object = pd.ExcelFile(file_io, engine='xlrd')
-                            df = excel_object.parse(sheet_name = 'Sheet1', index_col = 0)
-                            print('it worked 4')
-                            print(df.head())
-                        except:
-                            try:                        
-                                file_io = io.BytesIO(decoded)
-                                excel_object = pd.ExcelFile(file_io, engine='openpyxl')
-                                df = excel_object.parse(sheet_name = 'Sheet1', index_col = 0)
-                                print('it worked 5')
-                                print(df.head())
-                            
-                            except:
-                                print('Nothing worked')
-                                df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
-                                df['F1'] = list(range(1,10))
-                                df['F2'] = list(range(11,20))
-                                df['F3'] = list(range(21,30))
+                print('Nothing worked')
+                df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
+                df['F1'] = list(range(1,10))
+                df['F2'] = list(range(11,20))
+                df['F3'] = list(range(21,30))
             
         else:
             print('wtf?')
