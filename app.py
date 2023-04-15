@@ -1621,24 +1621,35 @@ def parse_contents(contents, filename, date):
     decoded = base64.b64decode(content_string)
     
     try:
-        if '.csv' in filename:
-            df = pd.read_csv(
-                #io.StringIO(decoded.decode('ISO-8859-1')))
-                io.StringIO(decoded.decode('utf-8')))
-        elif '.xls' in filename:
-            #try:
-            #    df = pd.read_excel(io.BytesIO(decoded))
-            #except:
-            #    try:
-            #        df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
-            #    except:
-            #        df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
-                    
-            #if df == None or df.shape[0] < 5:
-            df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
-            df['F1'] = list(range([1,10]))
-            df['F2'] = list(range([2,20]))
-            df['F3'] = list(range([3,30]))
+        if '.csv' == filename[-4:]:
+            print(filename)
+            df = pd.read_csv(io.StringIO(decoded.decode('utf-8'))) #io.StringIO(decoded.decode('ISO-8859-1')))
+        elif '.xlsx' == filename[-5:]:
+            print('Excel file: ', filename)
+            
+            try:
+                df = pd.read_excel(io.BytesIO(decoded))
+                print('it worked 1')
+                print(df.head())
+            except:
+                try:
+                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
+                    print('it worked 2')
+                    print(df.head())
+                except:
+                    try:
+                        df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
+                        print('it worked 3')
+                        print(df.head())
+                    except:
+                        print('Nothing worked')
+                        df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
+                        df['F1'] = list(range(1,10))
+                        df['F2'] = list(range(11,20))
+                        df['F3'] = list(range(21,30))
+            
+        else:
+            print('wtf?')
                 
             
     except Exception as e:
@@ -4637,4 +4648,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
