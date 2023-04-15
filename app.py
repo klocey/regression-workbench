@@ -1649,11 +1649,19 @@ def parse_contents(contents, filename, date):
                             print('it worked 4')
                             print(df.head())
                         except:
-                            print('Nothing worked')
-                            df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
-                            df['F1'] = list(range(1,10))
-                            df['F2'] = list(range(11,20))
-                            df['F3'] = list(range(21,30))
+                            try:                        
+                                file_io = io.BytesIO(decoded)
+                                excel_object = pd.ExcelFile(file_io, engine='openpyxl')
+                                df = excel_object.parse(sheet_name = 'Sheet1', index_col = 0)
+                                print('it worked 5')
+                                print(df.head())
+                            
+                            except:
+                                print('Nothing worked')
+                                df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
+                                df['F1'] = list(range(1,10))
+                                df['F2'] = list(range(11,20))
+                                df['F3'] = list(range(21,30))
             
         else:
             print('wtf?')
