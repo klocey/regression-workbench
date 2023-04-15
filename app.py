@@ -1643,6 +1643,8 @@ def parse_contents(contents, filename, date):
             
             try:
                 df = pd.read_excel(io.BytesIO(decoded), engine=None)
+                print('df:')
+                print(df)
                 print('it worked 1')
                 print(df.head())
             except:
