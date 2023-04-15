@@ -1626,12 +1626,13 @@ def parse_contents(contents, filename, date):
                 #io.StringIO(decoded.decode('ISO-8859-1')))
                 io.StringIO(decoded.decode('utf-8')))
         elif '.xls' in filename:
-            df = pd.read_excel(io.BytesIO(decoded))
-            if df is None:
-                df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
-                
-            if df is None:
-                df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
+            try:
+                df = pd.read_excel(io.BytesIO(decoded))
+            except:
+                try:
+                    df = pd.read_excel(io.BytesIO(decoded), encoding='utf-8')
+                except:
+                    df = pd.read_excel(io.BytesIO(decoded), encoding="ISO-8859-1")
             
     except Exception as e:
         return html.Div([
