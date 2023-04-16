@@ -541,6 +541,7 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     df_table['[0.975]'] = df1_summary['0.975]'].tolist()
             
     xlabs = list(x_o)
+    
     vifs2 = []
     for p in df_table['Parameter'].tolist():
         if p == 'const':
@@ -709,6 +710,21 @@ def description_card_final():
                     style={
             'textAlign': 'left',
             }),
+            
+            html.H5("Testers",
+                    style={
+            'textAlign': 'left',
+            }),
+            html.P("Ryan Schipfer. Senior clinical data scientist. Center for Quality, Safety and Value Analytics. Rush University Medical Center.",
+                    style={
+            'textAlign': 'left',
+            }),
+            html.P("Brittnie Dotson. Clinical data scientist. Center for Quality, Safety and Value Analytics. Rush University Medical Center.",
+                    style={
+            'textAlign': 'left',
+            }),
+            
+            
         ],
     )
 
@@ -726,7 +742,7 @@ def control_card_upload():
             dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", target="target1",
                 style = {'font-size': 12},
                 ),
-            html.P("Your file (.csv, .xlsx) should have a simple format: rows, columns, one row of column headers. Excel files must only have one sheet and no special formatting."),
+            html.P("This app only accepts .csv files. It also expects a simple format: rows, columns, one row of column headers, and nothing else. Check the tooltips for more info."),
             dcc.Upload(
                 id='upload-data',
                 children=html.Div([
@@ -1620,43 +1636,11 @@ def parse_contents(contents, filename, date):
     content_type, content_string = contents.split(',')
     decoded = base64.b64decode(content_string)
     
-    print('Content Type:')
-    print(content_type)
-    print('\n\n')
-    print('Content String:')
-    print(content_string)
-    print('\n\n')
-    print('Decoded')
-    print(decoded)
-    print('\n\n')
-    print('2 Decoded')
-    print(io.BytesIO(decoded))
-    print('\n\n')
-    
     try:
-        if '.csv' == filename[-4:]:
-            print(filename)
-            df = pd.read_csv(io.StringIO(decoded.decode('utf-8'))) #io.StringIO(decoded.decode('ISO-8859-1')))
-        
-        elif '.xlsx' == filename[-5:]:
-            print('Excel file: ', filename)
-            
-            try:
-                df = pd.read_excel(io.BytesIO(decoded), engine=None)
-                print('df:')
-                print(df)
-                print('it worked 1')
-                print(df.head())
-            except:
-                print('Nothing worked')
-                df = pd.DataFrame(columns=['F1', 'F2', 'F3'])
-                df['F1'] = list(range(1,10))
-                df['F2'] = list(range(11,20))
-                df['F3'] = list(range(21,30))
-            
-        else:
-            print('wtf?')
-                
+        try:
+            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+        except:
+            df = pd.read_csv(io.StringIO(decoded.decode('ISO-8859-1')))
             
     except Exception as e:
         return html.Div([
@@ -2179,23 +2163,14 @@ def update_output1(list_of_contents, file_name, list_of_dates):
     if list_of_contents is None or file_name is None or list_of_dates is None:
         return None, None, None, ""
     
-    #print(file_name)
-    
-    error_string = ""
-    
-    #print(file_name[-5:])
-    
-    if file_name[-5:] == '.xlsx':
-        error_string = "Error: Your .xlsx file was not processed. Ensure there are only rows, columns, and one row of column headers. Your file must only have 1 sheet and no special formatting. If you continue to have issue with your file then save it as a .csv file and upload that."
-    
-    elif file_name[-4:] == '.csv':
-        error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
-    
-    elif file_name[-4:] != '.csv' or file_name[-5:] != '.xlsx':
-        error_string = "Error: This application only accepts files with .csv and .xlsx file extensions. Ensure that you're using one of these common extensions and that your file is correctly formatted."
+    elif file_name[-4:] != '.csv':
+        error_string = "Error: This application only accepts the universally useful and ubiquitous csv file type. Ensure that you're file has the .csv extension and is correctly formatted."
         return None, None, None, error_string
     
-    if list_of_contents is not None:
+    elif list_of_contents is not None:
+        
+        error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
+        
         children = 0
         df = 0
         try:
@@ -2218,6 +2193,11 @@ def update_output1(list_of_contents, file_name, list_of_dates):
         
         
         df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.replace(":", "_")
+        df = df.replace(',','', regex=True)
+        df = df.replace({None: 'None'}) # This solved a bug ...
+        df = df.replace({'?': 0})
+        
         df.dropna(how='all', axis=1, inplace=True)
         df.dropna(how='all', axis=0, inplace=True)
         
@@ -2230,9 +2210,6 @@ def update_output1(list_of_contents, file_name, list_of_dates):
         df.dropna(how='all', axis=1, inplace=True)
         df.dropna(how='all', axis=0, inplace=True)
         df = df.loc[:, df.nunique() != 1]
-        
-        df = df.replace(',','', regex=True)
-        df = df.replace({None: 'None'}) # This solved a bug ...
         
         cat_vars = []
         dichotomous_numerical_vars = []
@@ -2247,15 +2224,6 @@ def update_output1(list_of_contents, file_name, list_of_dates):
                    ';date', ';DATE', ';Date',
                    '-date', '-DATE', '-Date',
                    ':date', ':DATE', ':Date',
-                   
-                   ' time ', ' TIME ', ' Time ', 
-                   ' time', ' TIME', ' Time', 
-                   '_time_', '_TIME_', '_Time_', 
-                   '_time', '_TIME', '_Time', 
-                   ',time', ',TIME', ',Time', 
-                   ';time', ';TIME', ';Time',
-                   '-time', '-TIME', '-Time',
-                   ':time', ':TIME', ':Time',
                    ]
            
         datetime_ls2 = ['date', 'DATE', 'Date', 'time', 'TIME', 'Time']          
@@ -2266,32 +2234,39 @@ def update_output1(list_of_contents, file_name, list_of_dates):
                 continue
             
             else:
-                for j in datetime_ls2:
+                for j in datetime_ls1:
                     if j in i:
                         df.drop(labels = [i], axis=1, inplace=True)
-                        continue
-
+                        break
+                    
+        variables = list(df)
+        for i in variables:
             if 'Unnamed:' in i:
                 new_lab = 'Unnamed: ' + str(ct)
                 df.rename(columns={i: new_lab}, inplace=True)
                 i = new_lab
                 ct += 1
             
+            # 1. Convert df[i] to numeric and coerce all non-numbers to np.nan 
             df['temp'] = pd.to_numeric(df[i], errors='coerce')
+            # 2. Replace all the np.nan's in df['temp'] with values in df[i]
             df['temp'].fillna(df[i], inplace=True)
+            # 3. Replace df[i] with df['temp']
             df[i] = df['temp'].copy(deep=True)
+            # 4. Drop df['temp']
             df.drop(labels=['temp'], axis=1, inplace=True)
             
-            ls = df[i].tolist()
-                
+            ls = df[i].unique()
+            
             if all(isinstance(item, str) for item in ls) is True:
+                # if all items are strings, then call the feature categorical
                 cat_vars.append(i)
             
             else:
+                # else call the feature numeric
                 df[i] = pd.to_numeric(df[i], errors='coerce')
                 
-                
-            if len(list(set(ls))) == 2 and all(isinstance(item, str) for item in ls) is False:
+            if len(ls) == 2 and all(isinstance(item, str) for item in ls) is False:
                 dichotomous_numerical_vars.append(i)
 
         df.dropna(how='all', axis=0, inplace=True)
@@ -3599,7 +3574,6 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         # Least Absolute Deviation (LAD)
         # The LAD model is a special case of quantile regression where q=0.5
         # #res = mod.fit(q=.5)
-        # print(res.summary())
             
         x, y = (np.array(t) for t in zip(*sorted(zip(df[xvar], df[yvar]))))
         d = {'x': x, 'y': y}
@@ -3624,7 +3598,6 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         results_hi = res_all[2]
         r2_hi = str(np.round(results_hi.prsquared,3))
         
-        #print(r2_lo, r2_50, r2_hi)
         del df
             
         fig_data = []
@@ -3702,16 +3675,12 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         
         ######################################### Lower quantile ###################################
         results_summary = res_all[0].summary()
-        #print(results_summary)
         
         results_as_html1 = results_summary.tables[0].as_html()
         df1_summary = pd.read_html(results_as_html1)[0]
         #df1_summary['index'] = df1_summary.index
         df1_summary = df1_summary.astype(str)
         col_names = list(df1_summary)
-        
-        #print(df1_summary, '\n')
-        #print(col_names)
         
         df3 = pd.DataFrame(columns=['Model information', 'Model statistics'])
         df3['Model information']  = df1_summary[col_names[0]].astype(str) + ' ' + df1_summary[col_names[1]].astype(str) 
@@ -3769,16 +3738,12 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         
         ######################################### 50th quantile ###################################
         results_summary = res_all[1].summary()
-        #print(results_summary)
         
         results_as_html1 = results_summary.tables[0].as_html()
         df1_summary = pd.read_html(results_as_html1)[0]
         #df1_summary['index'] = df1_summary.index
         df1_summary = df1_summary.astype(str)
         col_names = list(df1_summary)
-        
-        #print(df1_summary, '\n')
-        #print(col_names)
         
         df3 = pd.DataFrame(columns=['Model information', 'Model statistics'])
         df3['Model information']  = df1_summary[col_names[0]].astype(str) + ' ' + df1_summary[col_names[1]].astype(str) 
@@ -3835,16 +3800,12 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         
         ######################################### Upper quantile ###################################
         results_summary = res_all[2].summary()
-        #print(results_summary)
         
         results_as_html1 = results_summary.tables[0].as_html()
         df1_summary = pd.read_html(results_as_html1)[0]
         #df1_summary['index'] = df1_summary.index
         df1_summary = df1_summary.astype(str)
         col_names = list(df1_summary)
-        
-        #print(df1_summary, '\n')
-        #print(col_names)
         
         df3 = pd.DataFrame(columns=['Model information', 'Model statistics'])
         df3['Model information']  = df1_summary[col_names[0]].astype(str) + ' ' + df1_summary[col_names[1]].astype(str) 
@@ -4397,8 +4358,12 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         
     models_df, df1_summary, df2_summary, error, pred_df = run_logistic_regression(main_df, xvars, yvar, cat_vars)
     
-    if error == 1:
-        error = "Error: The model exceeded the maximum iterations in trying to find a fit. Try a smaller number of predictors. Tip: eliminate redundant variables, variables of little-to-no interest, or eliminate categorical variables that have many levels (e.g., a column of diagnosis codes may have hundreds of different codes)."
+    if error == 1 and smartscale == 1:
+        error = "Error: The model exceeded the maximum iterations in trying to find a fit. Try running w/out Smart Scale. You might also have one or more severely redundant (multicollinear) predictors included. Try removing one or more potentially problematic predictors. Tip: Eliminate redundant predictors, predictors of little-to-no interest, or categorical variables with many levels, e.g., a column of diagnosis codes may have hundreds of different codes."
+        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+    
+    if error == 1 and smartscale == 0:
+        error = "Error: The model exceeded the maximum iterations in trying to find a fit. Try using Smart Scale. You might also have one or more severely redundant (multicollinear) predictors included. Try removing one or more potentially problematic predictors. Tip: Eliminate redundant predictors, predictors of little-to-no interest, or categorical variables with many levels, e.g., a column of diagnosis codes may have hundreds of different codes."
         return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
         
         
