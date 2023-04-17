@@ -111,7 +111,7 @@ def smart_scale(df, predictors, responses):
                 new_skew = stats.skew(lmt, nan_policy='omit')
                 if np.abs(new_skew) < best_skew:
                     best_skew = np.abs(new_skew)
-                    best_lab = 'log_mod(' + i + ')'
+                    best_lab = 'log<sub>mod</sub>(' + i + ')'
                     t_vals = lmt
                 
                 # cube root transformation
@@ -132,12 +132,12 @@ def smart_scale(df, predictors, responses):
                 
             elif np.nanmin(df[i]) == 0:
                 
-                # log-modulo transformation
+                # log-shift transformation
                 lmt = np.log10(df[i] + 1).tolist()
                 new_skew = stats.skew(lmt, nan_policy='omit')
                 if np.abs(new_skew) < best_skew:
                     best_skew = np.abs(new_skew)
-                    best_lab = 'log_mod(' + i + ')'
+                    best_lab = 'log<sub>shift</sub>(' + i + ')'
                     t_vals = lmt
                     
                 # square root transformation
@@ -156,6 +156,7 @@ def smart_scale(df, predictors, responses):
                     best_lab = '(' + i + ')\u00B2'
                     t_vals = st
                 
+                '''
                 # cube root transformation
                 crt = df[i]**(1/3)
                 new_skew = stats.skew(crt, nan_policy='omit')
@@ -171,6 +172,7 @@ def smart_scale(df, predictors, responses):
                     best_skew = np.abs(new_skew)
                     best_lab = '(' + i + ')\u00B3'
                     t_vals = cut
+                '''
                     
                 
             elif np.nanmin(df[i]) > 0:
@@ -197,6 +199,7 @@ def smart_scale(df, predictors, responses):
                     best_lab = '(' + i + ')\u00B2'
                     t_vals = st
                 
+                '''
                 # cube root transformation
                 crt = df[i]**(1/3)
                 new_skew = stats.skew(crt, nan_policy='omit')
@@ -212,7 +215,8 @@ def smart_scale(df, predictors, responses):
                     best_skew = np.abs(new_skew)
                     best_lab = '(' + i + ')\u00B3'
                     t_vals = cut
-                    
+                '''
+                
                 # exponential transformation
                 #et = np.exp(df[i])
                 #new_skew = stats.skew(et, nan_policy='omit')
@@ -2986,7 +2990,7 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                 xvar = "log<sub>modulo</sub>(" + xvar + ")"
                 
             elif x_transform == 'log-shift':
-                df[xvar] = np.log10(np.abs(df[xvar]) + 1).tolist()
+                df[xvar] = np.log10(df[xvar] + 1).tolist()
                 df.rename(columns={xvar: "log<sub>shift</sub>(" + xvar + ")"}, inplace=True)
                 xvar = "log<sub>shift</sub>(" + xvar + ")"
             
@@ -3026,7 +3030,7 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                 yvar = "log<sub>modulo</sub>(" + yvar + ")"
                 
             elif y_transform == 'log-shift':
-                df[yvar] = np.log10(np.abs(df[yvar]) + 1).tolist()
+                df[yvar] = np.log10(df[yvar] + 1).tolist()
                 df.rename(columns={yvar: "log<sub>shift</sub>(" + yvar + ")"}, inplace=True)
                 yvar = "log<sub>shift</sub>(" + yvar + ")"
                 
@@ -3544,7 +3548,7 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
             yvar = "log<sub>modulo</sub>(" + yvar + ")"
             
         elif y_transform == 'log-shift':
-            df[yvar] = np.log10(np.abs(df[yvar]) + 1).tolist()
+            df[yvar] = np.log10(df[yvar] + 1).tolist()
             df.rename(columns={yvar: "log<sub>shift</sub>(" + yvar + ")"}, inplace=True)
             yvar = "log<sub>shift</sub>(" + yvar + ")"
             
@@ -4607,8 +4611,10 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
         t1 = " potentially useful "
     elif auroc < 0.85:
         t1 = " good "
-    elif auroc < 0.95:
+    elif auroc < 0.9:
         t1 = " good-to-excellent "
+    elif auroc < 0.95:
+        t1 = " excellent "
     else:
         t1 = " outstanding "
         
