@@ -58,8 +58,8 @@ def obs_pred_rsquare(obs, pred):
     # In other words, this determines the proportion of variation explained by
     # the 1:1 line in an observed-predicted plot.
     r2 = 1 - sum((obs - pred) ** 2) / sum((obs - np.mean(obs)) ** 2)
-    if r2 < 0:
-        r2 = 0
+    #if r2 < 0:
+    #    r2 = 0
     return r2
 
 
@@ -2818,7 +2818,7 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
                             x = obs_x,
                             y = pred_y,
                             mode = "lines",
-                            name = model + ': r2 = <sup>'+str(np.round(r2, 3))+'</sup>',
+                            name = model + ': r<sup>2</sup> = '+str(np.round(r2, 3)),
                             opacity = 0.75,
                             line = line_dict,
                         )
@@ -3152,7 +3152,9 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
             fig_data = []
             
             clr = "#3399ff"
-            #x, y, ypred = zip(*sorted(zip(x, y, ypred)))
+            
+            obs_pred_r2 = obs_pred_rsquare(y_o, ypred)
+            obs_pred_r2 = str(np.round(obs_pred_r2, 3))
             
             fig_data.append(go.Scatter(
                                 x = nonoutlier_x,
@@ -3181,7 +3183,7 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                             x = x_o,
                             y = ypred,
                             mode = "lines",
-                            name = 'fitted: r2 = <sup>'+str(np.round(r2, 3))+'</sup>',
+                            name = 'r<sup>2</sup> (fitted) =' + str(np.round(r2_adj,3)) + '<br>r<sup>2</sup> (obs vs pred) =' + obs_pred_r2,
                             opacity = 0.75,
                             line = dict(color = clr, width = 2),
                         )
@@ -3548,12 +3550,12 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
             
                 
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        df.dropna(how='any', inplace=True)
+        df.dropna(how='any', axis=0, inplace=True)
             
         ql = quantiles[0]
         qh = quantiles[1]
         quantiles = [0.01*ql, 0.5, 0.01*qh]
-            
+
         formula = int()
         degree = int()
         if model == 'linear': 
@@ -3581,28 +3583,33 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         mod = smf.quantreg(formula, df)
         res_all = [mod.fit(q=q) for q in quantiles]
         #res_ols = smf.ols(formula, df).fit()
-            
+        
         x_p = np.array(x)
         df_p = pd.DataFrame({'x': x_p})
-        y_lo = res_all[0].predict({'x': x_p})
-        y_50 = res_all[1].predict({'x': x_p})
-        y_hi = res_all[2].predict({'x': x_p})
+        
+        y_lo = res_all[0].fittedvalues
+        y_lo_resid = res_all[0].resid
+        obs_lo = y_lo - y_lo_resid
+        pr2_lo = str(np.round(res_all[0].prsquared, 3))
+        
+        y_50 = res_all[1].fittedvalues
+        y_50_resid = res_all[1].resid
+        obs_50 = y_50 - y_50_resid
+        pr2_50 = str(np.round(res_all[1].prsquared, 3))
+        r2_50 = str(np.round(obs_pred_rsquare(obs_50, y_50), 3))
+        
+        y_hi = res_all[2].fittedvalues
+        y_hi_resid = res_all[2].resid
+        obs_hi = y_hi - y_hi_resid
+        pr2_hi = str(np.round(res_all[2].prsquared, 3))
+        
         #y_ols_predicted = res_ols.predict(df_p)
-
-        results_lo = res_all[0]
-        r2_lo = str(np.round(results_lo.prsquared,3))
-        
-        results_50 = res_all[1]
-        r2_50 = str(np.round(results_50.prsquared,3))
-        
-        results_hi = res_all[2]
-        r2_hi = str(np.round(results_hi.prsquared,3))
         
         del df
             
         fig_data = []
         clr = "#3399ff"
-            
+
         fig_data.append(go.Scatter(
             x = x,
             y = y,
@@ -3614,16 +3621,15 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
             )
         )
             
-        
         qh = str(qh)
         if qh[-1] == '1' and qh != '11':
-            tname = qh + 'st quantile, R\u00B2 = ' + r2_hi
+            tname = qh + 'st quantile, pseudo R\u00B2 = ' + pr2_hi
         elif qh[-1] == '2':
-            tname = qh + 'nd quantile, R\u00B2 = ' + r2_hi
+            tname = qh + 'nd quantile, pseudo R\u00B2 = ' + pr2_hi
         elif qh[-1] == '3':
-            tname = qh + 'rd quantile, R\u00B2 = ' + r2_hi
+            tname = qh + 'rd quantile, pseudo R\u00B2 = ' + pr2_hi
         else:
-            tname = qh + 'th quantile, R\u00B2 = ' + r2_hi
+            tname = qh + 'th quantile, pseudo R\u00B2 = ' + pr2_hi
             
         fig_data.append(go.Scatter(
             x = x_p,
@@ -3642,7 +3648,7 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
                 x = x_p,
                 y = y_50,
                 mode = "lines",
-                name = '50th quantile, R\u00B2 = ' + r2_50,
+                name = 'Median (50th quantile):<br>   pseudo R\u00B2 = ' + pr2_50 + '<br>   obs vs pred r\u00B2 = ' + r2_50,
                 opacity = 0.75,
                 line = dict(width=3,
                             dash='dash',
@@ -3652,13 +3658,13 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
         
         ql = str(ql)
         if ql[-1] == '1' and ql != '11':
-            tname = ql + 'st quantile, R\u00B2 = ' + r2_lo
+            tname = ql + 'st quantile, R\u00B2 = ' + pr2_lo
         elif ql[-1] == '2':
-            tname = ql + 'nd quantile, R\u00B2 = ' + r2_lo
+            tname = ql + 'nd quantile, R\u00B2 = ' + pr2_lo
         elif ql[-1] == '3':
-            tname = ql + 'rd quantile, R\u00B2 = ' + r2_lo
+            tname = ql + 'rd quantile, R\u00B2 = ' + pr2_lo
         else:
-            tname = ql + 'th quantile, R\u00B2 = ' + r2_lo
+            tname = ql + 'th quantile, R\u00B2 = ' + pr2_lo
             
         fig_data.append(go.Scatter(
             x = x_p,
