@@ -75,38 +75,27 @@ def myround(n):
 
 
 def smart_scale(df, predictors, responses):
+    # many small values and few large values results in positive skew
+    # many large values and few small values results in negative skew
     
     for i in list(df):
-        var_lab = str(i)
-        
-        #if len(df[i].unique()) < 4:
-        #    continue
-        
-        # many small values and few large values results in positive skew
-        # many large values and few small values results in negative skew
         skewness = float()
-        try:
-            skewness = stats.skew(df[i], nan_policy='omit')
-        except:
-            continue
+        try: skewness = stats.skew(df[i], nan_policy='omit') # Based on the Fisher-Pearson coefficient 
+        except: continue
         
-        if skewness >= -1.5 and skewness <= 1.5:
+        if skewness >= -1.5 and skewness <= 1.5: # Values >= -1.5 and <= 1.5 do not likely need transformation
             continue
         
         else:
-            
             best_skew = float(skewness)
             best_lab = str(i)
             t_vals = df[i].tolist()
             
-            if np.nanmin(df[i]) < 0:
-                continue
-                
+            if np.nanmin(df[i]) < 0: 
                 # log-modulo transformation
                 lmt = np.log10(np.abs(df[i]) + 1).tolist()
-                for i, val in enumerate(df[i].tolist()):
-                    if val < 0:
-                        lmt[i] = lmt[i] * -1
+                for j, val in enumerate(df[i].tolist()):
+                    if val < 0: lmt[j] = lmt[j] * -1
                 
                 new_skew = stats.skew(lmt, nan_policy='omit')
                 if np.abs(new_skew) < best_skew:
@@ -156,24 +145,6 @@ def smart_scale(df, predictors, responses):
                     best_lab = '(' + i + ')\u00B2'
                     t_vals = st
                 
-                '''
-                # cube root transformation
-                crt = df[i]**(1/3)
-                new_skew = stats.skew(crt, nan_policy='omit')
-                if np.abs(new_skew) < best_skew:
-                    best_skew = np.abs(new_skew)
-                    best_lab = '\u221B(' + i + ')'
-                    t_vals = crt
-                
-                # cube transformation
-                cut = df[i]**3
-                new_skew = stats.skew(cut, nan_policy='omit')
-                if np.abs(new_skew) < best_skew:
-                    best_skew = np.abs(new_skew)
-                    best_lab = '(' + i + ')\u00B3'
-                    t_vals = cut
-                '''
-                    
                 
             elif np.nanmin(df[i]) > 0:
                 lt = np.log10(df[i])
@@ -199,33 +170,6 @@ def smart_scale(df, predictors, responses):
                     best_lab = '(' + i + ')\u00B2'
                     t_vals = st
                 
-                '''
-                # cube root transformation
-                crt = df[i]**(1/3)
-                new_skew = stats.skew(crt, nan_policy='omit')
-                if np.abs(new_skew) < best_skew:
-                    best_skew = np.abs(new_skew)
-                    best_lab = '\u221B(' + i + ')'
-                    t_vals = crt
-                    
-                # cube transformation
-                cut = df[i]**3
-                new_skew = stats.skew(cut, nan_policy='omit')
-                if np.abs(new_skew) < best_skew:
-                    best_skew = np.abs(new_skew)
-                    best_lab = '(' + i + ')\u00B3'
-                    t_vals = cut
-                '''
-                
-                # exponential transformation
-                #et = np.exp(df[i])
-                #new_skew = stats.skew(et, nan_policy='omit')
-                #if np.abs(new_skew) < np.abs(best_skew):
-                #    best_skew = float(new_skew)
-                #    best_lab = 'e^(' + i + ')'
-                #    t_vals = et
-            
-            
             df[i] = list(t_vals)
             
         df.rename(columns={i: best_lab}, inplace=True)
@@ -2230,7 +2174,7 @@ def update_output1(list_of_contents, file_name, list_of_dates):
                    ':date', ':DATE', ':Date',
                    ]
            
-        datetime_ls2 = ['date', 'DATE', 'Date', 'time', 'TIME', 'Time']          
+        datetime_ls2 = ['date', 'DATE', 'Date']          
         for i in variables:
             
             if i in datetime_ls2:
@@ -4631,4 +4575,4 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
