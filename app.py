@@ -1750,6 +1750,7 @@ def generate_figure_4a():
                     'padding': '10px',
                     'margin-bottom': '10px',
                     'margin-right': '8%',
+                    'vertical-align': 'top',
                 },
     )
 
@@ -1782,6 +1783,7 @@ def generate_figure_4b():
                     'padding': '10px',
                     'margin-bottom': '10px',
                     'margin-right': '10px',
+                    'vertical-align': 'top',
                 },
     )
 
@@ -4612,9 +4614,69 @@ def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, y
     else:
         t1 = " outstanding "
         
-    txt3 = "AUC = area under the ROC curve. Random 50:50 guesses produce values of 0.5. Your AUC value of " + str(auroc) + " indicates" + t1 + "diagnostic power."
+    txt3 = "AUC = area under the ROC curve, i.e., average true positive rate across diagnostic thresholds. Random 50:50 guesses produce values of 0.5. Your AUC value of " + str(auroc) + " indicates" + t1 + "diagnostic power."
     
-    txt4 = "AUC = area under the PRC curve. Random 50:50 guesses produce AUC values equal to the fraction of actual positive outcomes (1's) in the data (the null expectation)."
+    txt4 = "AUC = area under the PRC curve, i.e., average precision across diagnostic thresholds. Random 50:50 guesses produce AUC values that equal the fraction of positive outcomes (1's) in the data. "
+    
+    p = auprc/prc_null
+    auprc_t = str(round(auprc, 3))
+    if p > 1.5 and auprc > 0.9:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. Your model seems to be highly precise, especially when compared to the null expectation."
+    elif p > 1.5 and auprc > 0.8:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderate-to-high, especially when compared to the null expectation."
+    elif p > 1.5 and auprc > 0.7:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderately useful, especially when compared to the null expectation."
+    elif p > 1.5 and auprc > 0.6:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is low-to-moderate, especially when compared to the null expectation."
+    elif p > 1.5 and auprc > 0.5:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, barely better than a coin toss."
+    elif p > 1.5:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, worse than or equal to a coin toss."
+    
+    
+    elif p > 1.25 and auprc > 0.9:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. Your model seems to be highly precise, particularly in regard to the null expectation."
+    elif p > 1.25 and auprc > 0.8:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderate-to-high, particularly in regard to the null expectation."
+    elif p > 1.25 and auprc > 0.7:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderately useful, particularly in regard to the null expectation."
+    elif p > 1.25 and auprc > 0.6:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is low-to-moderate, particularly in regard to the null expectation."
+    elif p > 1.25 and auprc > 0.5:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, barely better than a coin toss."
+    elif p > 1.25:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, worse than or equal to a coin toss."
+    
+    elif p > 1.1 and auprc > 0.9:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. Your model seems to be highly precise, but maybe not much more than the null expectation."
+    elif p > 1.1 and auprc > 0.8:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderate-to-high, but maybe not much more than the null expectation."
+    elif p > 1.1 and auprc > 0.7:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderately useful, but maybe not much more than the null expectation."
+    elif p > 1.1 and auprc > 0.6:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is low-to-moderate, but maybe not much more than the null expectation."
+    elif p > 1.1 and auprc > 0.5:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, barely better than a coin toss."
+    elif p > 1.1:
+        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, worse than or equal to a coin toss."
+    
+    
+    elif p > 1 and auprc > 0.9:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null, even though your model seems to be highly precise."
+    elif p > 1 and auprc > 0.8:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null, even though the precision of your model is moderate-to-high."
+    elif p > 1 and auprc > 0.7:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null, even though the precision of your model is moderately useful."
+    elif p > 1 and auprc > 0.6:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null and your model is low-to-moderately precise."
+    elif p > 1 and auprc > 0.5:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null and the precision of your model is low."
+    
+    elif p == 1:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " equalled the null."
+      
+    elif p < 1:
+        txt4 = txt4 + "Your AUC of " + auprc_t + " was worse than the null."
     
     return figure1, figure2, dashT1, dashT2, "", [1], txt1, txt2, txt3, txt4, 0
 
