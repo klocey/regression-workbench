@@ -5,23 +5,23 @@ Python source code for a plotly / dash app used for conducting various forms of 
 The [Rush Regression Workbench](https://regression-workbench.herokuapp.com/) is a freely available and lightweight dashboard application for conducting various regression analyses. This open-source tool automates iterative linear and polynomial regressions, multivariable forms of linear and logistic regression, linear and polynomial forms of quantile regression, as well as tests of regression assumptions, automated data encoding, optimized data transformations, machine learning based feature elimination, outlier detection, and construction of residuals plots, confidence intervals, prediction intervals, and diagnostic curves. The regression workbench attempts to recognize invalid data features, helps prevent invalid analyses, and offers tool tips and analytical interpretations.
 
 ### Upload Data
-![Regression Workbench Data Upload](assets/Landing.png "Regression Workbench Data Upload")
+![Regression Workbench Data Upload](assets/images_for_README/Landing.png "Regression Workbench Data Upload")
 
 
 ### Conduct iterative pairwise regressions
-![Iterative pairwise regressions](assets/Iterative_pairwise.png "Iterative pairwise regressions")
+![Iterative pairwise regressions](assets/images_for_README/Iterative_pairwise.png "Iterative pairwise regressions")
 
 ### Conduct a single regression for deeper insights
-![Single regression](assets/SingleRegressionDive.png "Single regression")
+![Single regression](assets/images_for_README/SingleRegressionDive.png "Single regression")
 
 ### Conduct linear and polynomial quantile regression
-![Quantile regression](assets/QuantileRegression.png "Quantile regression")
+![Quantile regression](assets/images_for_README/QuantileRegression.png "Quantile regression")
 
 ### Conduct multivariable linear regression
-![Multivariable linear regression](assets/MLinearR.png "Multivariable linear regression")
+![Multivariable linear regression](assets/images_for_README/MLinearR.png "Multivariable linear regression")
 
 ### Conduct multivariable logistic regression
-![Multivariable logistic regression](assets/MLogisticR.png "Multivariable logistic regression")
+![Multivariable logistic regression](assets/images_for_README/MLogisticR.png "Multivariable logistic regression")
 
 ### More to come!
 
@@ -93,7 +93,7 @@ The primary file for running the Rush Regression Workbench application. This fil
 </details>
 
 <details><summary>assets</summary>
-Files in this directory are used by the application to format its interface. All files except `RUSH_full_color.jpg` were obtained from another open source Plotly Dash app (https://github.com/plotly/dash-sample-apps/tree/main/apps/dash-clinical-analytics/assets.): `Acumin-BdPro.otf`, `base.css`, `clinical-analytics.css`, - `plotly_logo.png`- `resizing.js`
+Files in this directory are used by the application to format its interface or are used as images in this README file. All files except `RUSH_full_color.jpg` and those in the `images_for_README` were obtained from another open source Plotly Dash app (https://github.com/plotly/dash-sample-apps/tree/main/apps/dash-clinical-analytics/assets.): `Acumin-BdPro.otf`, `base.css`, `clinical-analytics.css`, - `plotly_logo.png`- `resizing.js`
 
 
 - `Acumin-BdPro.otf`: An OpenType font file used by the application. 
@@ -101,6 +101,7 @@ Files in this directory are used by the application to format its interface. All
 - `clinical-analytics.css` An additional css file.
 - `plotly_logo.png`
 - `RUSH_full_color.jpg`
+- `images_for_README`: A directory containing png files used in this README document.
 </details>
 
 <details><summary>Procfile</summary>	
