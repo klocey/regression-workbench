@@ -85,6 +85,7 @@ These are automatically installed when following the instructions above.
 * dash\_bootstrap_components==1.0.2
 * lxml==4.8.0
 * werkzeug==2.0.2
+* jsonschema==3.2.0
 
 ## Files & Directories
 

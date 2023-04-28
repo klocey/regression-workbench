@@ -11,3 +11,4 @@ scikit-learn==1.0.2
 dash_bootstrap_components==1.0.2
 lxml==4.8.0
 werkzeug==2.0.2
+jsonschema==3.2.0
