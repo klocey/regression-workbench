@@ -3,7 +3,7 @@ from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 #from dash.exceptions import PreventUpdate
-
+import json
 import pandas as pd
 import random
 import datetime
@@ -188,7 +188,20 @@ def smart_scale(df, predictors, responses):
    
     
 def dummify(df, cat_vars, dropone=True):
-
+    
+    '''
+    Convert categorical features to binary dummy variables. 
+    
+    df -- input dataframe containing all numerical and categorical features
+    cat_vars -- a list of categorical features
+    dropone -- Indicates whether or not to drop one level from each categorical feature, as when
+        conducting linear or logistic multivariable regression.
+        
+    Note: In the event that a categorical feature contains more than 10 levels, only the 10
+        most common levels are retained. If this happens, then the dropone argument can be ignored
+        as its function (to prevent perfect multicollinearity) will be redundant.
+    '''
+    
     dropped = []
     cat_var_ls = []
     
@@ -198,14 +211,16 @@ def dummify(df, cat_vars, dropone=True):
         labs = list(set(df[i].tolist()))
         df[i] = df[i].replace(r"^ +| +$", r"", regex=True)
         
+        subsample = 0
         one_hot = pd.get_dummies(df[i])
         if one_hot.shape[1] > 10:
+            subsample = 1
             one_hot = one_hot[one_hot.sum().sort_values(ascending=False).index[:10]]
             
         one_hot = one_hot.add_prefix(i + ':')
         ls2 = list(one_hot)
         
-        if dropone == True:
+        if dropone == True and subsample == 0:
             nmax = 0
             lab = 0
             for ii in ls2:
@@ -2494,14 +2509,22 @@ def update_select_vars4(df, cat_vars, di_num_vars):
                Output('table1txt', 'children'),
                Output('btn_ss', 'n_clicks')
                ],
-               [Input('btn1', 'n_clicks'),
+               [Input('upload-data', 'contents'),
+                Input('btn1', 'n_clicks'),
                 Input('btn_ss', 'n_clicks')],
                [State('main_df', 'data'),
                 State('cat_vars', 'children'),
                 State('xvar', 'value'),
                 State('yvar', 'value')],
             )
-def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
+def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvars, yvars):
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, {}, "", "", "", 0
+    
     
     if df is None or xvars is None or yvars is None or len(xvars) == 0 or len(yvars) == 0:
             return {}, {}, "", "", "",0
@@ -2848,11 +2871,11 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
             del df_models
             #del df_table
             
-            txt1 = "This figure displays 'Y vs X' relationships for up to 10 pairs of features sharing the strongest relationships. "
+            txt1 = "This figure displays up to 10 pairs of features sharing the strongest linear and curvilinear (polynomial) relationships. "
             txt1 += "Polynomial regression is useful when relationships are noticeably curved. "
-            txt1 += "Quadratic models account for 1 curve. Cubic models account for 2 curves. "
-            txt1 += "When interpreting performance, consider whether or not a curvier model produces meaningfully greater improvement. "
-            
+            txt1 += "Quadratic models account for one curve and cubic models account for two. "
+            txt1 += "When interpreting performance, consider whether or not a curvier model produces meaningfully greater r\u00B2"
+
             txt2 = "The Durbin-Watson statistic ranges between 0 and 4. The closer it is to 2, the more independent the observations. "
             txt2 += "Significant Jarque-Bera tests (p < 0.05) indicate non-normality. "
             txt2 += "Significant Breusch-Pagan tests (p < 0.05) indicate heteroskedasticity. "
@@ -2867,7 +2890,8 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
                 Output('rt3', 'children'),
                 Output('fig2txt', 'children'),
                 Output('residuals_plot1', 'figure')],
-                [Input('btn2', 'n_clicks')],
+                [Input('upload-data', 'contents'),
+                 Input('btn2', 'n_clicks')],
                 [State('xvar2', 'value'),
                  State('yvar2', 'value'),
                  State('x_transform', 'value'),
@@ -2875,8 +2899,14 @@ def update_simple_regressions(n_clicks, smartscale, df, cat_vars, xvars, yvars):
                  State('model2', 'value'),
                  State('main_df', 'data')],
             )
-def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, model, df):
+def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_transform, model, df):
         
+        ctx1 = dash.callback_context
+        jd1 = json.dumps({'triggered': ctx1.triggered,})
+        jd1 = jd1[:50]
+        if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+            return {}, "", "", {}
+    
         if df is None or xvar is None or yvar is None or xvar == yvar or isinstance(yvar, list) is True or isinstance(yvar, list) is True:
             
             if df is None:
@@ -3327,7 +3357,8 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                 Output('quant_table_1', 'children'),
                 Output('quant_table_2', 'children'),
                 ],
-                [Input('btn2_quant', 'n_clicks')],
+                [Input('upload-data', 'contents'),
+                 Input('btn2_quant', 'n_clicks')],
                 [State('xvar2_quant', 'value'),
                  State('yvar2_quant', 'value'),
                  State('x_transform_quant', 'value'),
@@ -3336,9 +3367,8 @@ def update_single_regression(n_clicks, xvar, yvar, x_transform, y_transform, mod
                  State('main_df', 'data'),
                  State('quantiles', 'value')],
             )
-def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, model, df, quantiles):
+def update_quantile_regression(contents, n_clicks, xvar, yvar, x_transform, y_transform, model, df, quantiles):
         
-    
     cols = ['Model information', 'Model statistics']
     df_table1 = pd.DataFrame(columns=cols)
     df_table1['Model information'] = [np.nan]*3
@@ -3394,7 +3424,13 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
                     'textAlign': 'center',
                     },
     )
-        
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+    
     if df is None or xvar is None or yvar is None or xvar == yvar or isinstance(yvar, list) is True or isinstance(yvar, list) is True:
             
         if df is None:
@@ -3897,7 +3933,8 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
                Output('fig3txt', 'children'),
                Output('tab3btxt', 'children'),
                Output('btn_ss2', 'n_clicks')],
-              [Input('btn3', 'n_clicks'),
+              [Input('upload-data', 'contents'),
+               Input('btn3', 'n_clicks'),
                Input('btn_ss2', 'n_clicks')],
               [State('xvar3', 'value'),
                State('yvar3', 'value'),
@@ -3905,7 +3942,7 @@ def update_quantile_regression(n_clicks, xvar, yvar, x_transform, y_transform, m
                State('cat_vars', 'children'),
                State('rfecv', 'value')],
         )
-def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
+def update_multiple_regression(contents, n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
     
                         
     cols = ['Model information', 'Model statistics']
@@ -3964,6 +4001,12 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
                     'textAlign': 'center',
                     },
     )
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, dashT1, dashT2, "", [0], "", "", 0
     
     if df is None:
         return {}, dashT1, dashT2, "", [0], "", "", 0
@@ -4166,14 +4209,15 @@ def update_multiple_regression(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
                 Output('fig4btxt', 'children'),
                 Output('btn_ss3', 'n_clicks'),
                 ],
-                [Input('btn4', 'n_clicks'),
+                [Input('upload-data', 'contents'),
+                 Input('btn4', 'n_clicks'),
                  Input('btn_ss3', 'n_clicks')],
                 [State('main_df', 'data'),
                 State('xvar_logistic', 'value'),
                 State('yvar_logistic', 'value'),
                 State('cat_vars', 'children')],
             )
-def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_vars):
+def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, yvar, cat_vars):
     
     figure = go.Figure(data=[go.Table(
                     header=dict(values=[],
@@ -4251,6 +4295,12 @@ def update_logistic_regression(n_clicks, smartscale, main_df, xvars, yvar, cat_v
                     'textAlign': 'center',
                     },
     )
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
     
     if main_df is None:
         return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
