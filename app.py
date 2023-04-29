@@ -1,34 +1,33 @@
-import dash
-from dash import dcc, html, dash_table
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.feature_selection import RFECV
+
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.stats.outliers_influence import summary_table
+import statsmodels.stats.diagnostic as sm_diagnostic
+import statsmodels.stats.stattools as stattools
+import statsmodels.formula.api as smf
+import statsmodels.stats.api as sms
+import statsmodels.api as sm
+
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
-#from dash.exceptions import PreventUpdate
-import json
-import pandas as pd
-import random
-import datetime
+from dash import dcc, html, dash_table
+import dash
+
 import plotly.graph_objects as go
-import warnings
-import sys
-import numpy as np
-
-import base64
-import io
-import math
 from scipy import stats
-
-import statsmodels.stats.stattools as stattools
-import statsmodels.stats.diagnostic as sm_diagnostic
-import statsmodels.api as sm
-import statsmodels.stats.api as sms
-from statsmodels.stats.outliers_influence import summary_table
-import statsmodels.formula.api as smf
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
-from sklearn.feature_selection import RFECV
-from sklearn.linear_model import LinearRegression, LogisticRegression
+import pandas as pd
+import numpy as np
+import datetime
+import warnings
+import random
+import base64
+import json
+import sys
+import math
+import io
 
 #########################################################################################
 ################################# CONFIG APP ############################################
@@ -54,39 +53,52 @@ yvar = 'Nothing uploaded'
 #########################################################################################
 
 def obs_pred_rsquare(obs, pred):
-    # Determines the prop of variability in a data set accounted for by a model
-    # In other words, this determines the proportion of variation explained by
-    # the 1:1 line in an observed-predicted plot.
+    '''
+    Determines the proportion of variability in a data set accounted for by a model
+    In other words, this determines the proportion of variation explained by the 1:1 line
+    in an observed-predicted plot.
+    
+    Used in various peer-reviewed publications:
+        1. Locey, K.J. and White, E.P., 2013. How species richness and total abundance 
+        constrain the distribution of abundance. Ecology letters, 16(9), pp.1177-1185.
+        2. Xiao, X., McGlinn, D.J. and White, E.P., 2015. A strong test of the maximum 
+        entropy theory of ecology. The American Naturalist, 185(3), pp.E70-E80.
+        3. Baldridge, E., Harris, D.J., Xiao, X. and White, E.P., 2016. An extensive 
+        comparison of species-abundance distribution models. PeerJ, 4, p.e2823.
+    '''
     r2 = 1 - sum((obs - pred) ** 2) / sum((obs - np.mean(obs)) ** 2)
-    #if r2 < 0:
-    #    r2 = 0
     return r2
 
 
-def myround(n):
-    if n == 0:
-        return 0
-    sgn = -1 if n < 0 else 1
-    scale = int(-math.floor(math.log10(abs(n))))
-    if scale <= 0:
-        scale = 2
-    factor = 10**scale
-    return sgn*math.floor(abs(n)*factor)/factor
-
 
 def smart_scale(df, predictors, responses):
-    # many small values and few large values results in positive skew
-    # many large values and few small values results in negative skew
+    
+    '''
+    Skewness generally comes in two forms:
+    1. Positive skew: Data with many small values and few large values.
+    2. Negative skew: Date with many large values and few small values.
+    
+    Significantly skewed data can invalidate or obsure regression results by causing outliers
+    (extreme values in reponse variables) and leverage points (extreme values in predictor variables)
+    to exert a biased influence on the analysis.
+    
+    The smart_scale function loops through each data feature in the input dataframe 'df' and conducts
+    a skewness test using scipy's skewtest function:
+        (https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.skewtest.html#scipy.stats.skewtest
+    If a feature is significantly skewed, the smart_scale function will loop through various data 
+    transformations and attempt to find the one that brings the skewness closest to zero.
+    '''
     
     for i in list(df):
-        skewness = float()
-        try: skewness = stats.skew(df[i], nan_policy='omit') # Based on the Fisher-Pearson coefficient 
+        stat, pval = float(), float()
+        try: stat, pval = stats.skewtest(df[i], nan_policy='omit')
         except: continue
         
-        if skewness >= -1.5 and skewness <= 1.5: # Values >= -1.5 and <= 1.5 do not likely need transformation
+        if pval >= 0.05:
             continue
         
         else:
+            skewness = stats.skew(df[i], nan_policy='omit') # Based on the Fisher-Pearson coefficient      
             best_skew = float(skewness)
             best_lab = str(i)
             t_vals = df[i].tolist()
@@ -126,7 +138,7 @@ def smart_scale(df, predictors, responses):
                 new_skew = stats.skew(lmt, nan_policy='omit')
                 if np.abs(new_skew) < best_skew:
                     best_skew = np.abs(new_skew)
-                    best_lab = 'log<sub>shift</sub>(' + i + ')'
+                    best_lab = 'log-shift(' + i + ')'
                     t_vals = lmt
                     
                 # square root transformation
@@ -192,14 +204,17 @@ def dummify(df, cat_vars, dropone=True):
     '''
     Convert categorical features to binary dummy variables. 
     
-    df -- input dataframe containing all numerical and categorical features
-    cat_vars -- a list of categorical features
-    dropone -- Indicates whether or not to drop one level from each categorical feature, as when
+    df: input dataframe containing all numerical and categorical features
+    
+    cat_vars: a list of categorical features
+    
+    dropone: Indicates whether or not to drop one level from each categorical feature, as when
         conducting linear or logistic multivariable regression.
         
     Note: In the event that a categorical feature contains more than 10 levels, only the 10
         most common levels are retained. If this happens, then the dropone argument can be ignored
         as its function (to prevent perfect multicollinearity) will be redundant.
+    
     '''
     
     dropped = []
@@ -243,6 +258,24 @@ def dummify(df, cat_vars, dropone=True):
 
 def dummify_logistic(df, cat_vars, y_prefix, dropone=True):
 
+    '''
+    Convert categorical features to binary dummy variables. 
+    
+    df: input dataframe containing all numerical and categorical features
+    
+    cat_vars: a list of categorical features
+    
+    y_prefix: the category of the feature that was chosen as the response variable
+    
+    dropone: Indicates whether or not to drop one level from each categorical feature, as when
+        conducting linear or logistic multivariable regression.
+        
+    Note: In the event that a categorical feature contains more than 10 levels, only the 10
+        most common levels are retained. If this happens, then the dropone argument can be ignored
+        as its function (to prevent perfect multicollinearity) will be redundant.
+    
+    '''
+    
     dropped = []
     cat_var_ls = []
     
@@ -252,11 +285,16 @@ def dummify_logistic(df, cat_vars, y_prefix, dropone=True):
         labs = list(set(df[i].tolist()))
         df[i] = df[i].replace(r"^ +| +$", r"", regex=True)
         
+        subsample = 0
         one_hot = pd.get_dummies(df[i])
+        if one_hot.shape[1] > 10:
+            subsample = 1
+            one_hot = one_hot[one_hot.sum().sort_values(ascending=False).index[:10]]
+            
         one_hot = one_hot.add_prefix(i + ':')
         ls2 = list(one_hot)
         
-        if dropone == True and i != y_prefix:
+        if dropone == True and subsample == 0 and i != y_prefix:
             nmax = 0
             lab = 0
             for ii in ls2:
@@ -275,6 +313,8 @@ def dummify_logistic(df, cat_vars, y_prefix, dropone=True):
         df.drop(labels=[i], axis = 1, inplace=True)
         
     return df, dropped, cat_var_ls
+
+
 
 
 def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
@@ -369,8 +409,10 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     df_table['[0.975]'] = df1_summary['0.975]'].tolist()
     
     xlabs = list(X_train)
+    
     vifs2 = []
     for p in df_table['Parameter'].tolist():
+        print(p)
         if p == 'const':
             vifs2.append(np.nan)
         else:
@@ -510,6 +552,7 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
         if p == 'const':
             vifs2.append(np.nan)
         else:
+                
             i = xlabs.index(p)
             vif = vifs[i]
             vifs2.append(np.round(vif,3))
@@ -2125,75 +2168,64 @@ def toggle_modal(n1, n2, is_open):
             )
 def update_output1(list_of_contents, file_name, list_of_dates):
 
-    if list_of_contents is None or file_name is None or list_of_dates is None:
+    if list_of_contents is None or file_name is None or list_of_dates is None: # uploaded file contains nothing
         return None, None, None, ""
     
-    elif file_name[-4:] != '.csv':
+    elif file_name[-4:] != '.csv': # uploaded file does not have the .csv extension
         error_string = "Error: This application only accepts the universally useful and ubiquitous csv file type. Ensure that you're file has the .csv extension and is correctly formatted."
         return None, None, None, error_string
     
     elif list_of_contents is not None:
-        
         error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
-        
         children = 0
         df = 0
-        try:
-            children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [file_name], [list_of_dates])]
-        except:
-            return None, None, None, error_string
         
-        try:
-            df = children[0]
-        except:
-            return None, None, None, error_string
-            
-        try:
-            df = pd.read_json(df)
-        except:
-            return None, None, None, error_string
-            
-        if df.shape[0] < 2 or df.shape[1] < 2:
-            return None, None, None, error_string
+        # Attempt to parse the content
+        try: children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [file_name], [list_of_dates])]
+        except: return None, None, None, error_string
+        
+        # Attempt to assign contents to an object
+        try: df = children[0]
+        except: return None, None, None, error_string
+         
+        # Attempt to read the object as a pandas dataframe
+        try: df = pd.read_json(df)
+        except: return None, None, None, error_string
+        
+        # Check for whether the dataframe contains a trivial amount of data
+        if df.shape[0] < 4 or df.shape[1] < 2: return None, None, None, error_string
+        
+        df.columns = df.columns.str.strip() # remove leading and trailing whitespaces
+        df.columns = df.columns.str.replace(":", " ") # replace colons with white spaces
+        df = df.replace(',',' ', regex=True) # replace commas with white spaces
+        df = df.replace({None: 'None'}) # replace None objects with string objects of 'None'
+        df = df.replace({'?': 0}) # replace question marks with 0 integer values
+        df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
+        df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
+        
+        # If the dataframe contains >5000 rows or >50 columns, sample at random to meet those constraints
+        if df.shape[0] > 5000: df = df.sample(n = 5000, axis=0, replace=False, random_state=0)
+        if df.shape[1] > 50: df = df.sample(n = 50, axis=1, replace=False, random_state=0)
         
         
-        df.columns = df.columns.str.strip()
-        df.columns = df.columns.str.replace(":", "_")
-        df = df.replace(',','', regex=True)
-        df = df.replace({None: 'None'}) # This solved a bug ...
-        df = df.replace({'?': 0})
+        df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
+        df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
+        df = df.loc[:, df.nunique() != 1] # drop all columns containing only one unique value
         
-        df.dropna(how='all', axis=1, inplace=True)
-        df.dropna(how='all', axis=0, inplace=True)
-        
-        if df.shape[0] > 5000:
-            df = df.sample(n = 5000, axis=0, replace=False, random_state=0)
-        
-        if df.shape[1] > 50:
-            df = df.sample(n = 50, axis=1, replace=False, random_state=0)
-            
-        df.dropna(how='all', axis=1, inplace=True)
-        df.dropna(how='all', axis=0, inplace=True)
-        df = df.loc[:, df.nunique() != 1]
-        
-        cat_vars = []
-        dichotomous_numerical_vars = []
+        ct, cat_vars, dichotomous_numerical_vars = 1, [], []
         variables = list(df)
-        ct = 1
         
-        datetime_ls1 = [' date ', ' DATE ', ' Date ', 
-                   ' date', ' DATE', ' Date', 
-                   '_date_', '_DATE_', '_Date_', 
-                   '_date', '_DATE', '_Date', 
-                   ',date', ',DATE', ',Date', 
-                   ';date', ';DATE', ';Date',
-                   '-date', '-DATE', '-Date',
-                   ':date', ':DATE', ':Date',
-                   ]
-           
-        datetime_ls2 = ['date', 'DATE', 'Date']          
-        for i in variables:
-            
+        ############################################################################################
+        
+        # Attempt to detect datetime features based on their label.
+        # This is done because python's datetime library can easily convert numeric data to datetime
+        # objects (meaning it's no use to ask whether a feature can be converted to datetime).
+        datetime_ls1 = [' date ', ' DATE ', ' Date ', ' date', ' DATE', ' Date', '_date_', '_DATE_', 
+                        '_Date_', '_date', '_DATE', '_Date', ',date', ',DATE', ',Date', ';date', 
+                        ';DATE', ';Date', '-date', '-DATE', '-Date', ':date', ':DATE', ':Date']
+        datetime_ls2 = ['date', 'DATE', 'Date'] 
+         
+        for i in variables:            
             if i in datetime_ls2:
                 df.drop(labels = [i], axis=1, inplace=True)
                 continue
@@ -2203,11 +2235,17 @@ def update_output1(list_of_contents, file_name, list_of_dates):
                     if j in i:
                         df.drop(labels = [i], axis=1, inplace=True)
                         break
-                    
+        
+        ############################################################################################
+        ############################################################################################
+        
+        # Attempt to detect which features are numeric, categorical, or potentially both (e.g., 
+        # dichotomous numerical).
+        
         variables = list(df)
         for i in variables:
-            if 'Unnamed:' in i:
-                new_lab = 'Unnamed: ' + str(ct)
+            if 'Unnamed' in i:
+                new_lab = 'Unnamed ' + str(ct)
                 df.rename(columns={i: new_lab}, inplace=True)
                 i = new_lab
                 ct += 1
@@ -2233,12 +2271,15 @@ def update_output1(list_of_contents, file_name, list_of_dates):
                 
             if len(ls) == 2 and all(isinstance(item, str) for item in ls) is False:
                 dichotomous_numerical_vars.append(i)
-
+        
+        ############################################################################################
+        ############################################################################################
+        
+        # A final check to dump any row containing no data
         df.dropna(how='all', axis=0, inplace=True)
-        #df = df._get_numeric_data()
-        #df = df.loc[(df.sum(axis=1) != 0), (df.sum(axis=0) != 0)]
         
         return df.to_json(), cat_vars, dichotomous_numerical_vars, ""
+    
     
 
 @app.callback(Output('data_table_plot1', 'children'),
@@ -2664,23 +2705,23 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
                                 exp = 'x³'
                             
                             if i == 0:
-                                p = myround(p)
+                                p = round(p, 4)
                                 eqn = eqn + str(p) + exp
                                 
                             else:
                                 if p >= 0:
-                                    p = myround(p)
+                                    p = round(p, 4)
                                     eqn = eqn + ' + ' + str(p) + exp
                                 else:
-                                    p = myround(p)
+                                    p = round(p, 4)
                                     eqn = eqn + ' - ' + str(np.abs(p)) + exp
                         
                         b = model.params[0]
                         if b >= 0:
-                            b = myround(b)
+                            b = round(b, 4)
                             eqn = eqn + ' + ' + str(b)
                         else:
-                            b = myround(b)
+                            b = round(b, 4)
                             eqn = eqn + ' - ' + str(np.abs(b))
                             
                         eqns.append(eqn)
@@ -2962,13 +3003,13 @@ def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_tran
                     if val < 0:
                         lmt[i] = lmt[i] * -1
                 df[xvar] = lmt  
-                df.rename(columns={xvar: "log<sub>modulo</sub>(" + xvar + ")"}, inplace=True)
-                xvar = "log<sub>modulo</sub>(" + xvar + ")"
+                df.rename(columns={xvar: "log-modulo(" + xvar + ")"}, inplace=True)
+                xvar = "log-modulo(" + xvar + ")"
                 
             elif x_transform == 'log-shift':
                 df[xvar] = np.log10(df[xvar] + 1).tolist()
-                df.rename(columns={xvar: "log<sub>shift</sub>(" + xvar + ")"}, inplace=True)
-                xvar = "log<sub>shift</sub>(" + xvar + ")"
+                df.rename(columns={xvar: "log-shift(" + xvar + ")"}, inplace=True)
+                xvar = "log-shift(" + xvar + ")"
             
             
             
@@ -3002,13 +3043,13 @@ def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_tran
                     if val < 0:
                         lmt[i] = lmt[i] * -1
                 df[yvar] = lmt  
-                df.rename(columns={yvar: "log<sub>modulo</sub>(" + yvar + ")"}, inplace=True)
-                yvar = "log<sub>modulo</sub>(" + yvar + ")"
+                df.rename(columns={yvar: "log-modulo(" + yvar + ")"}, inplace=True)
+                yvar = "log-modulo(" + yvar + ")"
                 
             elif y_transform == 'log-shift':
                 df[yvar] = np.log10(df[yvar] + 1).tolist()
-                df.rename(columns={yvar: "log<sub>shift</sub>(" + yvar + ")"}, inplace=True)
-                yvar = "log<sub>shift</sub>(" + yvar + ")"
+                df.rename(columns={yvar: "log-shift(" + yvar + ")"}, inplace=True)
+                yvar = "log-shift(" + yvar + ")"
                 
                 
             df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -3085,23 +3126,23 @@ def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_tran
                     exp = 'x³'
                 
                 if i == 0:
-                    p = myround(p)
+                    p = round(p, 4)
                     eqn = eqn + str(p) + exp
                     
                 else:
                     if p >= 0:
-                        p = myround(p)
+                        p = round(p, 4)
                         eqn = eqn + ' + ' + str(p) + exp
                     else:
-                        p = myround(p)
+                        p = round(p, 4)
                         eqn = eqn + ' - ' + str(np.abs(p)) + exp
             
             b = model.params[0]
             if b >= 0:
-                b = myround(b)
+                b = round(b, 4)
                 eqn = eqn + ' + ' + str(b)
             else:
-                b = myround(b)
+                b = round(b, 4)
                 eqn = eqn + ' - ' + str(np.abs(b))
                 
             r2 = model.rsquared_adj
@@ -3486,13 +3527,13 @@ def update_quantile_regression(contents, n_clicks, xvar, yvar, x_transform, y_tr
                 if val < 0:
                     lmt[i] = lmt[i] * -1
             df[xvar] = lmt  
-            df.rename(columns={xvar: "log<sub>modulo</sub>(" + xvar + ")"}, inplace=True)
-            xvar = "log<sub>modulo</sub>(" + xvar + ")"
+            df.rename(columns={xvar: "log-modulo(" + xvar + ")"}, inplace=True)
+            xvar = "log-modulo(" + xvar + ")"
             
         elif x_transform == 'log-shift':
             df[xvar] = np.log10(np.abs(df[xvar]) + 1).tolist()
-            df.rename(columns={xvar: "log<sub>shift</sub>(" + xvar + ")"}, inplace=True)
-            xvar = "log<sub>shift</sub>(" + xvar + ")"
+            df.rename(columns={xvar: "log-shift(" + xvar + ")"}, inplace=True)
+            xvar = "log-shift(" + xvar + ")"
         
         
         
@@ -3526,13 +3567,13 @@ def update_quantile_regression(contents, n_clicks, xvar, yvar, x_transform, y_tr
                 if val < 0:
                     lmt[i] = lmt[i] * -1
             df[yvar] = lmt  
-            df.rename(columns={yvar: "log<sub>modulo</sub>(" + yvar + ")"}, inplace=True)
-            yvar = "log<sub>modulo</sub>(" + yvar + ")"
+            df.rename(columns={yvar: "log-modulo(" + yvar + ")"}, inplace=True)
+            yvar = "log-modulo(" + yvar + ")"
             
         elif y_transform == 'log-shift':
             df[yvar] = np.log10(df[yvar] + 1).tolist()
-            df.rename(columns={yvar: "log<sub>shift</sub>(" + yvar + ")"}, inplace=True)
-            yvar = "log<sub>shift</sub>(" + yvar + ")"
+            df.rename(columns={yvar: "log-shift(" + yvar + ")"}, inplace=True)
+            yvar = "log-shift(" + yvar + ")"
             
                 
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
