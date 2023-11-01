@@ -2,6 +2,7 @@ from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_prec
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_selection import RFECV
+from sklearn.pipeline import make_pipeline
 
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.outliers_influence import summary_table
@@ -14,10 +15,12 @@ import statsmodels.api as sm
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 from dash import dcc, html, dash_table
+from dash.exceptions import PreventUpdate
 import dash
 
 import plotly.graph_objects as go
 from scipy import stats
+from scipy.stats import t
 import pandas as pd
 import numpy as np
 import datetime
@@ -28,6 +31,7 @@ import json
 import sys
 import math
 import io
+import os
 
 #########################################################################################
 ################################# CONFIG APP ############################################
@@ -412,7 +416,6 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     
     vifs2 = []
     for p in df_table['Parameter'].tolist():
-        print(p)
         if p == 'const':
             vifs2.append(np.nan)
         else:
@@ -436,11 +439,22 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     PredY = []
     PredProb = []
     Ys = []
-            
+    
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(how='any', inplace=True)
+    
+    if yvar in list(df): 
+        pass
+    else:
+        return None, None, None, 3, None
+    
     df = df.loc[:, df.nunique() != 1]
     
+    if yvar in list(df): 
+        pass
+    else:
+        return None, None, None, 2, None
+
     y_o = df[yvar]
     x_o = df.drop(labels=[yvar], axis=1, inplace=False)
     
@@ -472,47 +486,49 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
             drop.append(var)
     
     x_o.drop(labels=drop, axis=1, inplace=True)
+    x_vars = list(x_o)
     
-    ########## Eliminating features using vif ###########
-    while x_o.shape[1] > 100:
-        cols = list(x_o)
-        vifs = [variance_inflation_factor(x_o.values, j) for j in range(x_o.shape[1])]
-            
-        max_vif = max(vifs)
-        if max_vif > 10:
-            i = vifs.index(max(vifs))
-            col = cols[i]
-            x_o.drop(labels=[col], axis=1, inplace=True)
-        else:
-            break
-            
-    ########## RFECV ############
-    if x_o.shape[1] > 100:
-        model = LogisticRegression()
-        try:
-            rfecv = RFECV(model, step=1, min_features_to_select=2)
-            rfecv = rfecv.fit(x_o, y_o)
-            
-            #support = rfecv.support_
-            ranks = rfecv.ranking_
-            xlabs = rfecv.feature_names_in_
-            
-            supported_features = []
-            unsupported = []
-            
-            for i, lab in enumerate(xlabs):
-                if ranks[i] == 1:
-                    supported_features.append(lab)
-                else:
-                    unsupported.append(lab)
-            
-            #if len(supported_features) >= 2:
-            #    if rfe_val == 'Yes':
-                    #X_train = X_train.filter(items = supported_features, axis=1)
+    if len(x_vars) > 1:
+        ########## Eliminating features using vif ###########
+        while x_o.shape[1] > 100:
+            cols = list(x_o)
+            vifs = [variance_inflation_factor(x_o.values, j) for j in range(x_o.shape[1])]
+                
+            max_vif = max(vifs)
+            if max_vif > 10:
+                i = vifs.index(max(vifs))
+                col = cols[i]
+                x_o.drop(labels=[col], axis=1, inplace=True)
+            else:
+                break
         
-            x_o = x_o.filter(items = supported_features, axis=1)
-        except:
-            pass
+        ########## RFECV ############
+        if x_o.shape[1] > 100:
+            model = LogisticRegression()
+            try:
+                rfecv = RFECV(model, step=1, min_features_to_select=2)
+                rfecv = rfecv.fit(x_o, y_o)
+                
+                #support = rfecv.support_
+                ranks = rfecv.ranking_
+                xlabs = rfecv.feature_names_in_
+                
+                supported_features = []
+                unsupported = []
+                
+                for i, lab in enumerate(xlabs):
+                    if ranks[i] == 1:
+                        supported_features.append(lab)
+                    else:
+                        unsupported.append(lab)
+                
+                #if len(supported_features) >= 2:
+                #    if rfe_val == 'Yes':
+                        #X_train = X_train.filter(items = supported_features, axis=1)
+            
+                x_o = x_o.filter(items = supported_features, axis=1)
+            except:
+                pass
     
     model = 0
     x_o_lm = sm.add_constant(x_o, has_constant='add')
@@ -532,8 +548,10 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     
     #results_as_html2 = results_summary.tables[2].as_html()
     #df2_summary = pd.read_html(results_as_html2, header=0, index_col=0)[0]
-            
-    vifs = [variance_inflation_factor(x_o.values, j) for j in range(x_o.shape[1])]
+    
+    x_vars = list(x_o)
+    if len(x_vars) > 1:        
+        vifs = [variance_inflation_factor(x_o.values, j) for j in range(x_o.shape[1])]
             
     cols = ['Parameter', 'coef', 'std err', 'z', 'P>|z|', '[0.025]', '[0.975]']
     df_table = pd.DataFrame(columns=cols)
@@ -547,17 +565,19 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
             
     xlabs = list(x_o)
     
-    vifs2 = []
-    for p in df_table['Parameter'].tolist():
-        if p == 'const':
-            vifs2.append(np.nan)
-        else:
-                
-            i = xlabs.index(p)
-            vif = vifs[i]
-            vifs2.append(np.round(vif,3))
-                
-    df_table['VIF'] = vifs2
+    x_vars = list(x_o)
+    if len(x_vars) > 1: 
+        vifs2 = []
+        for p in df_table['Parameter'].tolist():
+            if p == 'const':
+                vifs2.append(np.nan)
+            else:
+                    
+                i = xlabs.index(p)
+                vif = vifs[i]
+                vifs2.append(np.round(vif,3))
+                    
+        df_table['VIF'] = vifs2
     df1_summary = df_table
     df1_summary.sort_values(by='P>|z|', inplace=True, ascending=True)
     #ypred = model.fittedvalues
@@ -689,14 +709,42 @@ def description_card1():
     return html.Div(
         id="description-card1",
         children=[
-            html.H5("Regression workbench",
+            html.Div(
+                id="description-card1a",
+                children=[
+                    html.H3("Regression workbench", 
+                            style={
+                                'textAlign': 'left',
+                                'margin-left': '20px',
+                                'color': '#2a8cff',
+                                }
+                    ),
+                    control_card_upload1(),
+                    ],
+                style={
+                    'width': '45%',
+                    'display': 'inline-block',
+                },
+                ),
+            
+            html.Div(
+                id="description-card1b",
+                children=[
+                    dcc.Markdown("Discover relationships within data using the most common tool of statistical analysis, regression. This analytical application offers simple and sophisticated forms of regression, and provides user guidance, interpretive outputs, and automated data processing. Use this web application or download the [source code] (https://github.com/klocey/regression-workbench) and run it locally."),
+                    ],
                     style={
-            'textAlign': 'left',
-            }),
-            dcc.Markdown("This app makes it easy to discover and explore interesting and powerful relationships within your data. Use it via the web or download the source code from [here] (https://github.com/klocey/regression-workbench) and run it locally.",
-                    style={
-            'textAlign': 'left',
-            }),
+                        'textAlign': 'left',
+                        'justify-content': 'space-between',
+                        'margin-left': '10px',
+                        'margin-right': '0px',
+                        'margin-bottom': '0px',
+                        'width': '52%',
+                        'vertical-align': 'top',
+                        'display': 'inline-block',
+                        'padding': '20px',
+                    },
+            ),
+            
         ],
     )
 
@@ -735,41 +783,478 @@ def description_card_final():
     )
 
 
-def control_card_upload():
+def control_card_upload1():
     
     return html.Div(
         id="control-card-upload1",
         children=[
-            html.H5("Begin by uploading your data", style={'display': 'inline-block',
-                                                    'width': '295px'},),
-            html.I(className="fas fa-question-circle fa-lg", id="target1",
-                style={'display': 'inline-block', 'width': '20px', 'color':'#99ccff'},
+            dbc.Button("Begin by loading a dataset",
+                       id="open-centered-controlcard_load",
+                       style={
+                           "background-color": "#2a8cff",
+                           'width': '99%',
+                           'font-size': 14,
+                           'display': 'inline-block',
+                           'margin-left': '20px',
+                           'margin-bottom': '25px',
+                           },
                 ),
-            dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", target="target1",
+            dbc.Modal(
+                [dbc.ModalBody([
+                    html.Div(
+                            id="left-column1a",
+                            className="one columns",
+                            children=[control_card_upload1a()],
+                            style={'width': '46.64%',
+                                    'display': 'inline-block',
+                                    'border-radius': '15px',
+                                    'box-shadow': '1px 1px 1px grey',
+                                    'background-color': '#f0f0f0',
+                                    'padding': '10px',
+                                    'margin-bottom': '10px',
+                            },
+                        ),
+                    html.Div(
+                            id="left-column1b",
+                            className="one columns",
+                            children=[control_card_upload1b()],
+                            style={'width': '46.64%',
+                                    'display': 'inline-block',
+                                    'border-radius': '15px',
+                                    'box-shadow': '1px 1px 1px grey',
+                                    'background-color': '#f0f0f0',
+                                    'padding': '10px',
+                                    'margin-bottom': '10px',
+                            },
+                        ),
+                    html.Br(), 
+                    ]),
+                dbc.ModalFooter(
+                        dbc.Button("Close", id="close-centered-controlcard_load", className="ml-auto")
+                        ),
+                ],
+                id="modal-centered-controlcard_load",
+                is_open=False,
+                centered=True,
+                autoFocus=True,
+                size="xl",
+                keyboard=True,
+                fade=True,
+                backdrop=True,
+                ),
+                ],
+        style={'width': '90%', 'display': 'inline-block',},
+        )
+
+
+def control_card_upload1a():
+    
+    '''
+    html.I(className="fas fa-question-circle fa-lg", id="target1_load",
+        style={'display': 'inline-block', 'width': '50px', 'color':'#99ccff'},
+        ),
+    dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", 
+                target="target1_load",
+        style = {'font-size': 12},
+        ),
+    '''
+    
+    return html.Div(
+        id="control-card-upload1a",
+        children=[
+            html.H5("Option 1. Upload your own data", style={'display': 'inline-block',
+                                               'margin-right': '10px',
+                                               },),
+            html.I(className="fas fa-question-circle fa-lg", id="target1a",
+                style={'display': 'inline-block', 'width': '45px', 'color':'#99ccff'},
+                ),
+            dbc.Tooltip("The app expects a simple format: rows, columns, and one row of column headers. Column headers should not have commas or colons. Data should not contain mixed types (both 10% and 10cm contain numeric and non-numeric characters).", 
+                        target="target1a",
                 style = {'font-size': 12},
                 ),
-            html.P("This app only accepts .csv files. It also expects a simple format: rows, columns, one row of column headers, and nothing else. Check the tooltips for more info."),
+            html.P("This app only accepts .csv files. Data are deleted when the app is refreshed, closed, or when another file is uploaded. Still, do not upload sensitive data."),
             dcc.Upload(
                 id='upload-data',
                 children=html.Div([
                     'Drag and Drop or ',
-                    html.A('Select a File', style={'color':'#2c8cff', "text-decoration": "underline"},),
+                    html.A('Select a CSV File', style={'color':'#2c8cff', "text-decoration": "underline"},),
                 ]),
                 style={
-                    'lineHeight': '68px',
+                    'lineHeight': '34px',
                     'borderWidth': '2px',
                     'borderStyle': 'dashed',
                     'borderRadius': '5px',
                     'textAlign': 'center',
-                    'margin': '20px',
+                    'margin': '0px',
                 },
                 multiple=False
             ),
-            html.P("Data are deleted when the app is refreshed, closed, or when another file is uploaded. Still, do not upload sensitive data."),
-        ],
-    )
+            ],
+        )
 
+
+def control_card_upload1b():
     
+    return html.Div(
+        id="control-card-upload1b",
+        children=[
+            html.H5("Option 2. Select a preprocessed dataset", style={'display': 'inline-block',
+                                                    'margin-right': '10px',
+                                                    },),
+            html.I(className="fas fa-question-circle fa-lg", id="target1b",
+                style={'display': 'inline-block', 'width': '50px', 'color':'#99ccff'},
+                ),
+            dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", 
+                        target="target1b",
+                style = {'font-size': 12},
+                ),
+            
+            html.P("These preprocessed datasets are derived from publicly available data provided in peer-reviewed publications or by the Centers for Medicare and Medicaid Services."),
+            dbc.Button("Select dataset",
+                       id="open-centered-controlcard",
+                       #color="dark",
+                       #className="mr-1",
+                       style={
+                           "background-color": "#2a8cff",
+                           'width': '95%',
+                               'font-size': 12,
+                           'display': 'inline-block',
+                           #"height": "40px", 
+                           #'padding': '10px',
+                           #'margin-bottom': '10px',
+                           'margin-right': '20px',
+                           #'margin-left': '11px',
+                           },
+                ),
+            dbc.Modal(
+                [dbc.ModalBody([control_card5(), 
+                                html.Br(), 
+                                ]),
+                                #dbc.ModalFooter(
+                                #dbc.Button("Close", id="close-centered-controlcard", className="ml-auto")
+                                #),
+                        ],
+                id="modal-centered-controlcard",
+                is_open=False,
+                centered=True,
+                autoFocus=True,
+                size="xl",
+                keyboard=True,
+                fade=True,
+                backdrop=True,
+                ),
+                ],
+        )
+
+
+def control_card5():
+    
+    return html.Div(
+        id="control-card-5",
+        children=[
+            
+            html.Div(
+                id="data1",
+                children=[
+                    html.H5("Hospital Cost Reports", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("Each year, thousands of US hospitals submit cost reports to the Centers for Medicare and Medicaid Services. The data provided here was derived from a recently developed open-source [project] (https://github.com/klocey/HCRIS-databuilder/tree/master) and [application] (https://hcris-app.herokuapp.com/) for analyzing hospital cost report data. See the associated peer-reviewed [publication] (https://www.sciencedirect.com/science/article/pii/S2772442523001417) in Healthcare Analytics for details.",
+                                 style={'width': '94.1%'},),
+                    dcc.Dropdown(
+                            id='hcris-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015', '2014', '2013', '2012',
+                                                                        '2011', '2010',]],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load Cost Report dataset",
+                               id='hcris',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                    html.Div(id='button-output'),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '40px',}
+            ),
+            
+            html.Div(
+                id="data2",
+                children=[
+                    html.H5("Healthcare-Associated Infections", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("Healthcare-Associated Infections (HAIs) measures provide data on inpatient infections among individual hospitals. HAIs can relate to devices, surgical procedures, or the spread of bacterial infections. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/77hc-ibv8) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='hais-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015', '2014']],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load HAI dataset",
+                               id='hais',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%',}
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                id="data3",
+                children=[
+                    html.H5("Complications and Deaths", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("This data set includes provider-level data for the hip/knee complication measure, the CMS Patient Safety Indicators, and 30-day death rates. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/ynj2-r877) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='c_and_d-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015', '2014']],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load complications and deaths dataset",
+                               id='c_and_d',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+            ),
+            
+            html.Div(
+                id="data4",
+                children=[
+                    html.H5("Hospital Acquired Conditions Reduction Program (HACRP)", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("CMS reduces Medicare fee-for-service payments by 1% for hospitals that rank in the worst-performing quartile of total hospital-acquired condition (HAC) scores. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/yq43-i98g) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='hacrp-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015']],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load HACRP dataset",
+                               id='hacrp',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%',}
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                id="data5",
+                children=[
+                    html.H5("Hospital Readmissions Reduction Program (HRRP)", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("CMS reduces Medicare payments for hospitals with excess readmissions, which are measured by the ratio of a hospital's predicted rate of readmissions for heart attack (AMI), heart failure (HF), pneumonia, chronic obstructive pulmonary disease (COPD), hip/knee replacement (THA/TKA), and coronary artery bypass graft surgery (CABG) to an expected rate, based on an average hospital with similar patients. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/9n3s-kdb3) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='hrrp-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015', '2014', '2013']],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load HRRP dataset",
+                               id='hrrp',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+            ),
+            
+            html.Div(
+                id="data6",
+                children=[
+                    html.H5("Payment and Value of Care", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("The Medicare Spending Per Beneficiary (MSPB or “Medicare hospital spending per patient”) measure shows whether Medicare spends more, less, or about the same on an episode of care for a Medicare patient treated in a specific inpatient hospital compared to how much Medicare spends on an episode of care across all inpatient hospitals nationally. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/c7us-v4mf) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='p_and_v-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015',]],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load Payment and Value of Care dataset",
+                               id='p_and_v',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%',}
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                id="data7",
+                children=[
+                    html.H5("Timely and Effective Care", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("The measures of timely and effective care, also known as process of care measures, show how often or how quickly hospitals provide care that research shows gets the best results for patients with certain conditions, and how hospitals use outpatient medical imaging tests (like CT Scans and MRIs). The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/yv7e-xc69) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='t_and_e-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015', '2014',]],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load Timely and Effective Care dataset",
+                               id='t_and_e',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+            ),
+            
+            html.Div(
+                id="data8",
+                children=[
+                    html.H5("Unplanned Visits", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("This data set includes hospital-level data for the hospital return days (or excess days in acute care [EDAC]) measures, the unplanned readmissions measures, and measures of unplanned hospital visits after outpatient procedures. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/632h-zaca) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='unplanned_visits-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018']],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load Unplanned Visits dataset",
+                               id='unplanned_visits',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%'}
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                id="data9",
+                children=[
+                    html.H5("Outpatient Imaging Efficiency", style={'display': 'inline-block', 'margin-right': '10px'},),
+                    dcc.Markdown("These measures give you information about hospitals' use of medical imaging tests for outpatients. Examples of medical imaging tests include CT scans and MRIs. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/632h-zaca) offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'}),
+                    dcc.Dropdown(
+                            id='imaging-year',
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
+                                                                        '2019', '2018', '2017', '2016', 
+                                                                        '2015', '2014',]],
+                            multi=False, value=None,
+                            placeholder='Choose a federal fiscal year',
+                            style={'width': '96.2%',
+                                   'margin-bottom': '10px',
+                                 },
+                            ),
+                    dbc.Button("Load Outpatient Imaging Efficiency dataset",
+                               id='imaging',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+            ),
+            
+            ],
+        )
+    
+
 def control_card1():
 
     return html.Div(
@@ -779,7 +1264,7 @@ def control_card1():
                         style={'display': 'inline-block', 'width': '41.5%'},),
                 html.I(className="fas fa-question-circle fa-lg", id="target_select_vars",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("These analyses are based on ordinary least squares regression. They exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars", style = {'font-size': 12},),
+                dbc.Tooltip("As a default, these analyses are based on ordinary least squares regression (OLS). These analyses exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars", style = {'font-size': 12},),
                 html.Hr(),
                 
                 html.B("Choose one or more x-variables. These are also known as predictors.",
@@ -792,7 +1277,6 @@ def control_card1():
                         options=[{"label": i, "value": i} for i in []],
                         multi=True, value=None,
                         style={'width': '100%',
-                               #'display': 'inline-block',
                              },
                         ),
                         
@@ -807,7 +1291,6 @@ def control_card1():
                         options=[{"label": i, "value": i} for i in []],
                         multi=True, value=None,
                         style={'width': '100%',
-                               #'display': 'inline-block',
                              },
                         ),
                 html.Hr(),
@@ -855,7 +1338,7 @@ def control_card1():
                 
                 dbc.Button('Smart scale', 
                             id='btn_ss', n_clicks=0,
-                            style={'width': '20%',
+                            style={'width': '15%',
                                 'font-size': 12,
                                 "background-color": "#2a8cff",
                                 'display': 'inline-block',
@@ -864,8 +1347,25 @@ def control_card1():
                     ),
                 html.I(className="fas fa-question-circle fa-lg", id="ss1",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and rescale any skewed variables. To remove the rescaling just click 'Run Regressions'.",
-                            target="ss1", style = {'font-size': 12},),
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and apply the best scaling for each skewed variable. Smart scaling will not necessarily improve the r-square.  To remove the rescaling just click 'SMART SCALE' again.",
+                            target="ss1", style = {'font-size': 12,
+                                                   'display': 'inline-block',},),
+                
+                dbc.Button('Run robust', 
+                            id='btn_robust', n_clicks=0,
+                            style={'width': '15%',
+                                'font-size': 12,
+                                "background-color": "#2a8cff",
+                                'display': 'inline-block',
+                                'margin-right': '10px',
+                    },
+                    ),
+                html.I(className="fas fa-question-circle fa-lg", id="robust1",
+                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
+                dbc.Tooltip("Outliers can weaken OLS regression. However, clicking on 'RUN ROBUST' will run a 'Robust Linear Model' via statsmodels. The r-square (for observed vs predicted) of a robust regression will likely be lower than the r-square of OLS regression. This is because the robust model is not chasing outliers. However, for non-outliers (the main trend), the robust model will be more accurate, stable, valid, and useful for predictions than an OLS model. To run regular OLS regression, simply click 'RUN ROBUST' again.",
+                            target="robust1", style = {'font-size': 12,
+                                                       'display': 'inline-block',},
+                            ),
                 
                 html.P("", id='rt0'),
                 ],
@@ -885,7 +1385,7 @@ def control_card2():
                         style={'display': 'inline-block', 'width': '35.4%'},),
                 html.I(className="fas fa-question-circle fa-lg", id="target_select_vars2",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("These analyses are based on ordinary least squares regression. They exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars2", style = {'font-size': 12},),
+                dbc.Tooltip("These analyses are based on ordinary least squares regression (OLS). They exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars2", style = {'font-size': 12},),
                 html.Hr(),
                 
                 html.Div(
@@ -900,6 +1400,7 @@ def control_card2():
                             id='xvar2',
                             options=[{"label": i, "value": i} for i in []],
                             multi=False,
+                            optionHeight=65,
                             placeholder='Select a feature',
                             style={'width': '100%',
                                    'display': 'inline-block',
@@ -948,6 +1449,7 @@ def control_card2():
                             id='yvar2',
                             options=[{"label": i, "value": i} for i in []],
                             multi=False,
+                            optionHeight=65,
                             placeholder='Select a feature',
                             style={'width': '100%',
                                    'display': 'inline-block',
@@ -1030,7 +1532,7 @@ def control_card2():
                                #"height": "40px", 
                                #'padding': '10px',
                                #'margin-bottom': '10px',
-                               #'margin-right': '10px',
+                               'margin-right': '20px',
                                #'margin-left': '11px',
                                },
                     ),
@@ -1050,12 +1552,59 @@ def control_card2():
                     backdrop=True,
                     ),
                 
-                #html.Button('Download results', id='btn2b', n_clicks=0,
-                #    style={#'width': '100%',
-                #            'display': 'inline-block',
-                #            #'margin-right': '10px',
-                #    },
-                #    ),
+                dbc.Button("View results table",
+                           id="open-centered_single",
+                           #color="dark",
+                           #className="mr-1",
+                           style={
+                               "background-color": "#2a8cff",
+                               'width': '16%',
+                                   'font-size': 12,
+                               'display': 'inline-block',
+                               #"height": "40px", 
+                               #'padding': '10px',
+                               #'margin-bottom': '10px',
+                               'margin-right': '20px',
+                               #'margin-left': '11px',
+                               #'margin-top': '21.5px',
+                               },
+                    ),
+                dbc.Modal(
+                    [dbc.ModalBody([html.H5("Results for single regression"),
+                                    html.Div(id="single_table_1"), 
+                                    html.Div(id="single_table_2"),
+                                    html.Br(),
+                                    html.P("", id="single_table_txt"),
+                                    ]),
+                                    dbc.ModalFooter(
+                                    dbc.Button("Close", id="close-centered_single", className="ml-auto")
+                                    ),
+                            ],
+                    id="modal-centered_single",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    size="lg",
+                    keyboard=True,
+                    fade=True,
+                    backdrop=True,
+                    ),
+                
+                dbc.Button('Run robust', 
+                            id='btn_robust2', n_clicks=0,
+                            style={'width': '15%',
+                                'font-size': 12,
+                                "background-color": "#2a8cff",
+                                'display': 'inline-block',
+                                'margin-right': '10px',
+                    },
+                    ),
+                html.I(className="fas fa-question-circle fa-lg", id="robust2",
+                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
+                dbc.Tooltip("Outliers can weaken OLS regression. However, clicking on 'RUN ROBUST' will run a 'Robust Linear Model' via statsmodels. The r-square (for observed vs predicted) of a robust regression will likely be lower than the r-square of OLS regression. This is because the robust model is not chasing outliers. However, for non-outliers (the main trend), the robust model will be more accurate, stable, valid, and useful for predictions than an OLS model. To run regular OLS regression, simply click 'RUN REGRESSION' again.",
+                            target="robust2", style = {'font-size': 12,
+                                                       'display': 'inline-block',},),
+                
                 html.P("", id='rt3')
                 ],
                 style={'margin-bottom': '0px',
@@ -1090,6 +1639,7 @@ def control_card_quantile_regression():
                             id='xvar2_quant',
                             options=[{"label": i, "value": i} for i in []],
                             multi=False,
+                            optionHeight=65,
                             placeholder='Select a feature',
                             style={'width': '100%',
                                    'display': 'inline-block',
@@ -1138,6 +1688,7 @@ def control_card_quantile_regression():
                             id='yvar2_quant',
                             options=[{"label": i, "value": i} for i in []],
                             multi=False,
+                            optionHeight=65,
                             placeholder='Select a feature',
                             style={'width': '100%',
                                    'display': 'inline-block',
@@ -1279,12 +1830,6 @@ def control_card_quantile_regression():
                     backdrop=True,
                     ),
                 
-                #html.Button('Download results', id='btn2b', n_clicks=0,
-                #    style={#'width': '100%',
-                #            'display': 'inline-block',
-                #            #'margin-right': '10px',
-                #    },
-                #    ),
                 html.P("", id='rt3_quant')
                 ],
                 style={'margin-bottom': '0px',
@@ -1340,6 +1885,7 @@ def control_card3():
                                 id='yvar3',
                                 options=[{"label": i, "value": i} for i in []],
                                 multi=False, value=None,
+                                optionHeight=65,
                                 style={'width': '100%',
                                        'display': 'inline-block',
                                      },
@@ -1457,7 +2003,7 @@ def control_card3():
                     ),
                 html.I(className="fas fa-question-circle fa-lg", id="ss2",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and rescale any skewed variables. To remove the rescaling just click 'Run Multiple Regression'.", 
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and apply the best scaling for each skewed variable. Smart scaling will not necessarily improve the r-square. To remove the rescaling just click 'Run Multiple Regression'.", 
                             target="ss2", style = {'font-size': 12},),
                 
                 #html.Button('Download results', id='btn3b', n_clicks=0,
@@ -1480,17 +2026,17 @@ def control_card4():
     return html.Div(
         id="control-card4",
         children=[
-                html.H5("Conduct multiple logistic regression",
+                html.H5("Conduct logistic regression",
                         style={'display': 'inline-block', 'width': '27.5%'},),
                 #html.I(className="fas fa-question-circle fa-lg", id="target_SLR_vars",
                 #            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
                 #dbc.Tooltip("In statistics, multiple logistic regression is used to find explanatory relationships and to understand the significance of variables. In machine learning, it is used to obtain predictions. This app does both.", target="target_SLR_vars", style = {'font-size': 12},),
                 html.Br(),
-                html.P("When trying to explain, predict, or classify a binary variable (1/0, yes/no) using several other variables",
-                       style={'display': 'inline-block', 'width': '52%'},),
+                html.P("When trying to explain, predict, or classify a binary variable (1/0, yes/no) using one or more other variables as predictors",
+                       style={'display': 'inline-block', 'width': '61.5%'},),
                 html.I(className="fas fa-question-circle fa-lg", id="target_SLR_vars2",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#bfbfbf'},),
-                dbc.Tooltip("To improve efficiency, predictors that are 95% zeros will be removed from analysis. Highly multicollinear predictors are also removed during analysis, as are predictors that are perfect correlates of the response variable and any predictor variable that only has one value. If the number of resulting features is greater than 100, the app will use recursive feature elimination to remove statistically unimportant variables.", target="target_SLR_vars2", style = {'font-size': 12},),
+                dbc.Tooltip("This app takes several efficiency steps when conducting multiple logistic regression, i.e., when using >1 predictor variable. First, predictors that are 95% zeros will be removed from analysis. Highly multicollinear predictors are also removed during analysis, as are predictors that are perfect correlates of the response variable and any predictor variable that only has one value. If the number of resulting features is greater than 100, the app will use cross-validated recursive feature elimination to remove statistically unimportant variables.", target="target_SLR_vars2", style = {'font-size': 12},),
                 
                 html.Hr(),
                 
@@ -1526,6 +2072,7 @@ def control_card4():
                         id='yvar_logistic',
                         options=[{"label": i, "value": i} for i in []],
                         multi=False, value=None,
+                        optionHeight=65,
                         style={'width': '50%',
                              },
                         ),
@@ -1616,7 +2163,7 @@ def control_card4():
                     ),
                 html.I(className="fas fa-question-circle fa-lg", id="ss3",
                             style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and rescale any skewed variables. To remove the rescaling just click 'Run Logistic Regression'.", 
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and apply the best scaling for each skewed variable. Smart scaling will not necessarily improve the r-square.  To remove the rescaling just click 'Run Logistic Regression'.", 
                             target="ss3", style = {'font-size': 12},),
                 
                 #html.Button('Download results', id='btn4b', n_clicks=0,
@@ -1696,7 +2243,7 @@ def generate_figure_2():
                                     ],
                                 ),
                         ),
-                    html.P("Confidence intervals (CI) relate to the data, reflecting confidence in the mean y-value across the x-axis. Prediction intervals (PI) pertain to the model. Points outside the PIs are unlikely to be explained by the model and are labeled outliers.", 
+                    html.P("Confidence intervals (CI) reflect confidence in the mean y-value across the x-axis. Prediction intervals (PI) pertain to the model, where points outside the PI are unlikely to be explained by the model. Note: When running a robust regression, only the observed vs. predicted r\u00B2 value is returned, which usually equals or nearly equals the r\u00B2 of the fitted model.", 
                            ),
                     ],
                 style={'width': '100%',
@@ -1915,21 +2462,7 @@ app.layout = html.Div([
                     'border-radius': '15px',
                     'box-shadow': '1px 1px 1px grey',
                     'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-            },
-        ),
-    
-    html.Div(
-            id="left-column1",
-            className="one columns",
-            children=[control_card_upload()],
-            style={'width': '24%',
-                    'display': 'inline-block',
-                    'border-radius': '15px',
-                    'box-shadow': '1px 1px 1px grey',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
+                    'padding': '0px',
                     'margin-bottom': '10px',
             },
         ),
@@ -1945,25 +2478,58 @@ app.layout = html.Div([
                     type="default",
                     fullscreen=False,
                     children=html.Div(id="data_table1",
-                        children=[html.H5("Data Table", style={'display': 'inline-block', 'width': '12.5%'},
+                        children=[html.H5("Data Table", style={'display': 'inline-block', 'width': '8.5%'},
                                           ),
                                   html.I(className="fas fa-question-circle fa-lg", id="target_DataTable",
                                       style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},
                                       ),
-                                  dbc.Tooltip("Use this table to ensure your data uploaded as expected. Note, any dataset containing more than 5K rows or 50 columns will be randomly sampled to meet those constraints.", target="target_DataTable",
+                                  dbc.Tooltip("Use this table to ensure your data loaded as expected and to delete any rows or select, delete, and rename any columns. There are no limits on dataset size when running the application locally. But, when using the web application, any dataset containing more than 5K rows or 50 columns will be randomly sampled to meet those constraints.", target="target_DataTable",
                                         style = {'font-size': 12, 
                                                  #'display': 'inline-block',
                                                  },
                                         ),
                                   
                                   html.P("", id='rt4'),
-                                  html.Div(id='data_table_plot1'),
-                                ]))],
+                                  
+                                  dash_table.DataTable(
+                                        id='data_table',
+                                        columns=[{
+                                            'name': 'Column {}'.format(i),
+                                            'id': 'column-{}'.format(i),
+                                            'deletable': True,
+                                            'renamable': True,
+                                            'selectable': True,
+                                        } for i in range(1, 9)],
+                                        
+                                        data=None,
+                                        #virtualization=True,
+                                        editable=True,
+                                        page_action='native',
+                                        page_size=13,
+                                        filter_action='native',
+                                        sort_action='native',
+                                        row_deletable=True,
+                                        column_selectable='multi',
+                                        export_format='xlsx',
+                                        export_headers='display',
+                                        #fixed_rows={'headers': True},
+                                        
+                                        style_header={'padding':'5px', 'width':'250px', 'minWidth':'250px', 'maxWidth':'250px', 
+                                                    'textAlign': 'center', 'overflowX': 'auto'},
+                                        style_data  ={'padding':'5px', 'width':'250px', 'minWidth':'250px', 'maxWidth':'250px', 
+                                                    'textAlign': 'center', 'overflowX': 'auto'},
+                                        
+                                        style_table={'height': '120px', 'overflowX': 'auto'},
+                                    ),
+                                ],
                             ),
+                        ),
+                        ],
+                    ),
                 ],
-                style={'width': '69.3%',
-                        'height': '352.5px',
-                        'display': 'inline-block',
+                style={'width': '95.3%',
+                        'height': '170px', 
+                        #'display': 'flex',
                         'border-radius': '15px',
                         'box-shadow': '1px 1px 1px grey',
                         'background-color': '#f0f0f0',
@@ -2079,10 +2645,12 @@ app.layout = html.Div([
 ############################    Callbacks   #############################################
 #########################################################################################
 
+
 @app.callback(
     Output("modal-centered", "is_open"),
     [Input("open-centered", "n_clicks"), Input("close-centered", "n_clicks")],
     [State("modal-centered", "is_open")],
+    prevent_initial_call=True,
 )
 def toggle_modal(n1, n2, is_open):
     if n1 or n2:
@@ -2094,8 +2662,33 @@ def toggle_modal(n1, n2, is_open):
     Output("modal-centered_quant", "is_open"),
     [Input("open-centered_quant", "n_clicks"), Input("close-centered_quant", "n_clicks")],
     [State("modal-centered_quant", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_modal(n1, n2, is_open):
+def toggle_modal_quant(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered_single", "is_open"),
+    [Input("open-centered_single", "n_clicks"), Input("close-centered_single", "n_clicks")],
+    [State("modal-centered_single", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_single(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered2", "is_open"),
+    [Input("open-centered2", "n_clicks"), Input("close-centered2", "n_clicks")],
+    [State("modal-centered2", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_c2(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
@@ -2103,11 +2696,57 @@ def toggle_modal(n1, n2, is_open):
 
 
 @app.callback(
-    Output("modal-centered2", "is_open"),
-    [Input("open-centered2", "n_clicks"), Input("close-centered2", "n_clicks")],
-    [State("modal-centered2", "is_open")],
+    Output("modal-centered-controlcard", "is_open"),
+    [Input("open-centered-controlcard", "n_clicks"), 
+     Input('main_df', 'data'),
+     ],
+    [State("modal-centered-controlcard", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_modal(n1, n2, is_open):
+def toggle_modal_cc(n1, df, is_open):
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    
+    df = 0
+    if 'main_df' in jd1:
+        df = 1
+    
+    if n1:# or df == 1:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered-controlcard_load", "is_open"),
+    [Input("open-centered-controlcard_load", "n_clicks"), 
+     Input("close-centered-controlcard_load", "n_clicks"),
+     Input('main_df', 'data')],
+    [State("modal-centered-controlcard_load", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_ccl(n1, n2, df, is_open):
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    
+    df = 0
+    if 'main_df' in jd1:
+        df = 1
+    
+    if n1 or n2:# or df == 1:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-centered-controlcard1", "is_open"),
+    [Input("open-centered-controlcard1", "n_clicks"), Input("close-centered-controlcard1", "n_clicks")],
+    [State("modal-centered-controlcard1", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_cc1(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
@@ -2117,8 +2756,9 @@ def toggle_modal(n1, n2, is_open):
     Output("modal-centered3", "is_open"),
     [Input("open-centered3", "n_clicks"), Input("close-centered3", "n_clicks")],
     [State("modal-centered3", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_modal(n1, n2, is_open):
+def toggle_modal_c3(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
@@ -2128,8 +2768,9 @@ def toggle_modal(n1, n2, is_open):
     Output("modal-centered4", "is_open"),
     [Input("open-centered4", "n_clicks"), Input("close-centered4", "n_clicks")],
     [State("modal-centered4", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_modal(n1, n2, is_open):
+def toggle_modal_c4(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
@@ -2139,8 +2780,9 @@ def toggle_modal(n1, n2, is_open):
     Output("modal-centered5", "is_open"),
     [Input("open-centered5", "n_clicks"), Input("close-centered5", "n_clicks")],
     [State("modal-centered5", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_modal(n1, n2, is_open):
+def toggle_modal_c5(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
@@ -2150,11 +2792,56 @@ def toggle_modal(n1, n2, is_open):
     Output("modal-centered6", "is_open"),
     [Input("open-centered6", "n_clicks"), Input("close-centered6", "n_clicks")],
     [State("modal-centered6", "is_open")],
+    prevent_initial_call=True,
 )
-def toggle_modal(n1, n2, is_open):
+def toggle_modal_c6(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
+
+
+
+@app.callback(
+    [Output('hcris', 'style'),
+     Output('hais', 'style'),
+     Output('hacrp', 'style'),
+     Output('hrrp', 'style'),
+     Output('c_and_d', 'style'),
+     Output('p_and_v', 'style'),
+     Output('t_and_e', 'style'),
+     Output('unplanned_visits', 'style'),
+     Output('imaging', 'style'),
+    ],
+    [Input('upload-data', 'contents'),
+     Input('hcris', 'n_clicks'),
+     Input('hais', 'n_clicks'),
+     Input('hacrp', 'n_clicks'),
+     Input('hrrp', 'n_clicks'),
+     Input('c_and_d', 'n_clicks'),
+     Input('p_and_v', 'n_clicks'),
+     Input('t_and_e', 'n_clicks'),
+     Input('unplanned_visits', 'n_clicks'),
+     Input('imaging', 'n_clicks'),
+     ],
+    prevent_initial_call=True,
+)
+def update_button_style(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, unplanned_visits, imaging):
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    
+    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 't_and_e', 'unplanned_visits', 'imaging']
+    sets = []
+    for l in labs:
+        if l in jd1:
+            sets.append({'background-color': '#ff5733', 'width': '92.5%', 'font-size': 12, 
+                         'display': 'inline-block', 'margin-right': '20px'})
+        else:
+            sets.append({'background-color': '#2a8cff', 'width': '92.5%', 'font-size': 12, 
+                         'display': 'inline-block', 'margin-right': '20px'})
+        
+    return sets[0],sets[1],sets[2],sets[3],sets[4],sets[5],sets[6],sets[7],sets[8] 
 
 
 
@@ -2162,255 +2849,254 @@ def toggle_modal(n1, n2, is_open):
                Output('cat_vars', 'children'),
                Output('di_numerical_vars', 'children'),
                Output('rt4', 'children')],
-              [Input('upload-data', 'contents')],
+              [Input('upload-data', 'contents'),
+               Input('hcris', 'n_clicks'),
+               Input('hais', 'n_clicks'),
+               Input('hacrp', 'n_clicks'),
+               Input('hrrp', 'n_clicks'),
+               Input('c_and_d', 'n_clicks'),
+               Input('p_and_v', 'n_clicks'),
+               Input('t_and_e', 'n_clicks'),
+               Input('unplanned_visits', 'n_clicks'),
+               Input('imaging', 'n_clicks'),
+               ],
               [State('upload-data', 'filename'),
-               State('upload-data', 'last_modified')],
+               State('upload-data', 'last_modified'),
+               State('hcris-year', 'value'),
+               State('hais-year', 'value'),
+               State('hacrp-year', 'value'),
+               State('hrrp-year', 'value'),
+               State('c_and_d-year', 'value'),
+               State('p_and_v-year', 'value'),
+               State('t_and_e-year', 'value'),
+               State('unplanned_visits-year', 'value'),
+               State('imaging-year', 'value'),
+               ],
+              
             )
-def update_output1(list_of_contents, file_name, list_of_dates):
+def update_output1(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, unplanned_visits, imaging, file_name, list_of_dates, hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, t_and_e_yr, unplanned_visits_yr, imaging_yr):
 
-    if list_of_contents is None or file_name is None or list_of_dates is None: # uploaded file contains nothing
-        return None, None, None, ""
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
     
-    elif file_name[-4:] != '.csv': # uploaded file does not have the .csv extension
-        error_string = "Error: This application only accepts the universally useful and ubiquitous csv file type. Ensure that you're file has the .csv extension and is correctly formatted."
-        return None, None, None, error_string
+    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 't_and_e', 'unplanned_visits', 'imaging']
+    yrs = [hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, t_and_e_yr, unplanned_visits_yr, imaging_yr]
+    urls = ['https://github.com/klocey/HCRIS-databuilder/raw/master/filtered_datasets/HCRIS_filtered_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/HAIs/HAIs_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Hospital_Acquired_Conditions_Reduction_Program/Hospital_Acquired_Conditions_Reduction_Program_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Hospital_Readmissions_Reduction_Program/Hospital_Readmissions_Reduction_Program_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Complications_and_Deaths/Complications_and_Deaths_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Payment_and_Value_of_Care/Payment_and_Value_of_Care_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Timely_and_Effective_Care/Timely_and_Effective_Care_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Unplanned_Visits/Unplanned_Visits_',
+            'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Outpatient_Imaging_Efficiency/Outpatient_Imaging_Efficiency_',
+            ]
     
-    elif list_of_contents is not None:
-        error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
-        children = 0
-        df = 0
+    select_preprocessed = 'n'
+    for i, lab in enumerate(labs):
+        if lab in jd1:
+            select_preprocessed = 'y'
+            url = urls[i] + yrs[i] + '.csv'
+            df = pd.read_csv(url)
+            break
+    
+    if select_preprocessed == 'n':
         
-        # Attempt to parse the content
-        try: children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [file_name], [list_of_dates])]
-        except: return None, None, None, error_string
+        if list_of_contents is None or file_name is None or list_of_dates is None: # uploaded file contains nothing
+            return None, None, None, ""
         
-        # Attempt to assign contents to an object
-        try: df = children[0]
-        except: return None, None, None, error_string
-         
-        # Attempt to read the object as a pandas dataframe
-        try: df = pd.read_json(df)
-        except: return None, None, None, error_string
+        elif file_name[-4:] != '.csv': # uploaded file does not have the .csv extension
+            error_string = "Error: This application only accepts the universally useful CSV file type. Ensure that your file has the .csv extension and is correctly formatted."
+            return None, None, None, error_string
         
-        # Check for whether the dataframe contains a trivial amount of data
-        if df.shape[0] < 4 or df.shape[1] < 2: return None, None, None, error_string
+        elif list_of_contents is not None:
+            error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
+            children = 0
+            df = 0
+            
+            # Attempt to parse the content
+            try: children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [file_name], [list_of_dates])]
+            except: return None, None, None, error_string
+            
+            # Attempt to assign contents to an object
+            try: df = children[0]
+            except: return None, None, None, error_string
+             
+            # Attempt to read the object as a pandas dataframe
+            try: df = pd.read_json(df)
+            except: return None, None, None, error_string
+    
+    
+    # Check for variables named 'Unnamed' and removed them
+    var_ls = list(df)
+    ls1 = []
+    for i in var_ls:
+        if 'Unnamed' in i:
+            ls1.append(i)
+    df.drop(labels=ls1, axis=1, inplace=True)
+    del ls1, var_ls
+            
+    # Check for whether the dataframe contains a trivial amount of data
+    if df.shape[0] < 4 or df.shape[1] < 2: return None, None, None, error_string
         
-        df.columns = df.columns.str.strip() # remove leading and trailing whitespaces
-        df.columns = df.columns.str.replace(":", " ") # replace colons with white spaces
-        df = df.replace(',',' ', regex=True) # replace commas with white spaces
-        df = df.replace({None: 'None'}) # replace None objects with string objects of 'None'
-        df = df.replace({'?': 0}) # replace question marks with 0 integer values
-        df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
-        df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
+    df.columns = df.columns.str.strip() # remove leading and trailing whitespaces
+    #df.columns = df.columns.str.replace(":", " ") # replace colons with white spaces
+    df = df.replace(',',' ', regex=True) # replace commas with white spaces
+    df = df.replace({None: 'None'}) # replace None objects with string objects of 'None'
+    df = df.replace({'?': 0}) # replace question marks with 0 integer values
+    df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
+    df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
         
-        # If the dataframe contains >5000 rows or >50 columns, sample at random to meet those constraints
+    # If the dataframe contains >5000 rows or >50 columns, sample at random to meet those constraints
+    if os.environ.get('DEPLOYMENT_ENV', 'local') != 'local':  
         if df.shape[0] > 5000: df = df.sample(n = 5000, axis=0, replace=False, random_state=0)
         if df.shape[1] > 50: df = df.sample(n = 50, axis=1, replace=False, random_state=0)
+    
+    df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
+    df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
+    df = df.loc[:, df.nunique() != 1] # drop all columns containing only one unique value
         
+    ct, cat_vars, dichotomous_numerical_vars = 1, [], []
+    variables = list(df)
+    
+    ############################################################################################
         
-        df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
-        df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
-        df = df.loc[:, df.nunique() != 1] # drop all columns containing only one unique value
+    # Attempt to detect datetime features based on their label.
+    # This is done because python's datetime library can easily convert numeric data to datetime
+    # objects (meaning it's no use to ask whether a feature can be converted to datetime).
+    datetime_ls1 = [' date ', ' DATE ', ' Date ', ' date', ' DATE', ' Date', '_date_', '_DATE_', 
+                    '_Date_', '_date', '_DATE', '_Date', ',date', ',DATE', ',Date', ';date', 
+                    ';DATE', ';Date', '-date', '-DATE', '-Date', ':date', ':DATE', ':Date']
+    datetime_ls2 = ['date', 'DATE', 'Date'] 
+    
+       
+    for i in variables:            
+        if i in datetime_ls2:
+            df.drop(labels = [i], axis=1, inplace=True)
+            continue
+            
+        else:
+            for j in datetime_ls1:
+                if j in i:
+                    df.drop(labels = [i], axis=1, inplace=True)
+                    break
         
-        ct, cat_vars, dichotomous_numerical_vars = 1, [], []
-        variables = list(df)
+    ############################################################################################
+    ############################################################################################
         
-        ############################################################################################
+    # Attempt to detect which features are numeric, categorical, or potentially both (e.g., 
+    # dichotomous numerical).
         
-        # Attempt to detect datetime features based on their label.
-        # This is done because python's datetime library can easily convert numeric data to datetime
-        # objects (meaning it's no use to ask whether a feature can be converted to datetime).
-        datetime_ls1 = [' date ', ' DATE ', ' Date ', ' date', ' DATE', ' Date', '_date_', '_DATE_', 
-                        '_Date_', '_date', '_DATE', '_Date', ',date', ',DATE', ',Date', ';date', 
-                        ';DATE', ';Date', '-date', '-DATE', '-Date', ':date', ':DATE', ':Date']
-        datetime_ls2 = ['date', 'DATE', 'Date'] 
-         
-        for i in variables:            
-            if i in datetime_ls2:
-                df.drop(labels = [i], axis=1, inplace=True)
+    variables = list(df)
+    for i in variables:
+        if 'Unnamed' in i:
+            new_lab = 'Unnamed ' + str(ct)
+            df.rename(columns={i: new_lab}, inplace=True)
+            i = new_lab
+            ct += 1
+        
+        if i in datetime_ls2:
+            continue
+        for j in datetime_ls1:
+            if j in i:
                 continue
             
-            else:
-                for j in datetime_ls1:
-                    if j in i:
-                        df.drop(labels = [i], axis=1, inplace=True)
-                        break
+        # 1. Convert df[i] to numeric and coerce all non-numbers to np.nan 
+        df['temp'] = pd.to_numeric(df[i], errors='coerce')
+        # 2. Replace all the np.nan's in df['temp'] with values in df[i]
+        df['temp'].fillna(df[i], inplace=True)
+        # 3. Replace df[i] with df['temp']
+        df[i] = df['temp'].copy(deep=True)
+        # 4. Drop df['temp']
+        df.drop(labels=['temp'], axis=1, inplace=True)
         
-        ############################################################################################
-        ############################################################################################
-        
-        # Attempt to detect which features are numeric, categorical, or potentially both (e.g., 
-        # dichotomous numerical).
-        
-        variables = list(df)
-        for i in variables:
-            if 'Unnamed' in i:
-                new_lab = 'Unnamed ' + str(ct)
-                df.rename(columns={i: new_lab}, inplace=True)
-                i = new_lab
-                ct += 1
+        ls = df[i].unique()
             
-            # 1. Convert df[i] to numeric and coerce all non-numbers to np.nan 
-            df['temp'] = pd.to_numeric(df[i], errors='coerce')
-            # 2. Replace all the np.nan's in df['temp'] with values in df[i]
-            df['temp'].fillna(df[i], inplace=True)
-            # 3. Replace df[i] with df['temp']
-            df[i] = df['temp'].copy(deep=True)
-            # 4. Drop df['temp']
-            df.drop(labels=['temp'], axis=1, inplace=True)
+        if all(isinstance(item, str) for item in ls) is True:
+            # if all items are strings, then call the feature categorical
+            cat_vars.append(i)
             
-            ls = df[i].unique()
+        else:
+            # else call the feature numeric
+            df[i] = pd.to_numeric(df[i], errors='coerce')
             
-            if all(isinstance(item, str) for item in ls) is True:
-                # if all items are strings, then call the feature categorical
-                cat_vars.append(i)
-            
-            else:
-                # else call the feature numeric
-                df[i] = pd.to_numeric(df[i], errors='coerce')
-                
-            if len(ls) == 2 and all(isinstance(item, str) for item in ls) is False:
-                dichotomous_numerical_vars.append(i)
+        if len(ls) == 2 and all(isinstance(item, str) for item in ls) is False:
+            dichotomous_numerical_vars.append(i)
         
-        ############################################################################################
-        ############################################################################################
+    ############################################################################################
+    ############################################################################################
         
-        # A final check to dump any row containing no data
-        df.dropna(how='all', axis=0, inplace=True)
-        
-        return df.to_json(), cat_vars, dichotomous_numerical_vars, ""
+    # A final check to dump any row containing no data
+    df.dropna(how='all', axis=0, inplace=True)
+    return df.to_json(), cat_vars, dichotomous_numerical_vars, ""
     
     
 
-@app.callback(Output('data_table_plot1', 'children'),
+@app.callback([Output('data_table', 'data'),
+               Output('data_table', 'columns'),
+               Output('data_table', 'style_table'),
+               Output("right-column1", "style"),
+               ],
               [Input('main_df', 'data'),
                Input('rt4', 'children')],
             )
-def update_data_table1(main_df, rt4):
+def update_data_table1(df, rt4):
         
-    if main_df is None and rt4 == "":
-        cols = ['feature 1', 'feature 2', 'feature 3']
-        df_table = pd.DataFrame(columns=cols)
-        df_table['feature 1'] = [np.nan]*10
-        df_table['feature 2'] = [np.nan]*10
-        df_table['feature 3'] = [np.nan]*10
-        
-        dashT = dash_table.DataTable(
-            data = df_table.to_dict('records'),
-            columns = [{'id': c, 'name': c} for c in df_table.columns],
-            
-            virtualization=True,
-            
-            style_table={'height': '275px', 
-                         'overflowY': 'auto',
-                         'horizontalAligment':'center',
-                         },
-            style_cell={'padding':'5px',
-                        'minwidth':'140',
-                        'maxwidth':'300',
-                        },
-        )
-        return dashT
-    
-    
-    elif main_df is None and rt4 != "":
-        cols = ['feature 1', 'feature 2', 'feature 3']
-        df_table = pd.DataFrame(columns=cols)
-        df_table['feature 1'] = [np.nan]*10
-        df_table['feature 2'] = [np.nan]*10
-        df_table['feature 3'] = [np.nan]*10
-        
-        dashT = dash_table.DataTable(
-            data = df_table.to_dict('records'),
-            columns = [{'id': c, 'name': c} for c in df_table.columns],
-            
-            virtualization=True,
-            page_size=7,
-            
-            style_table={'height': '275px', 
-                         'overflowY': 'auto',
-                         'horizontalAligment':'center',
-                         },
-            style_cell={'padding':'5px',
-                        'minwidth':'140',
-                        'maxwidth':'300',
-                        },
-        )
-        return dashT
+    if df is None:
+        raise PreventUpdate
         
     else:
-        main_df = pd.read_json(main_df)
-        main_df = main_df.round(decimals=4)
-        dashT = dash_table.DataTable(
-            data=main_df.to_dict('records'),
-            columns=[{'id': c, 'name': c} for c in main_df.columns],
-            fixed_rows={'headers': True},
-            virtualization=True,
-            page_action='none',
-            sort_action="native",
-            sort_mode="multi",
+        df = pd.read_json(df)
+        if df.empty:
+            raise PreventUpdate
             
-            style_table={'height': '275px', 
-                         'overflowY': 'auto',
-                         },
-            style_cell={'padding':'5px',
-                        'minwidth':'160px',
-                        'width':'160px',
-                        'maxwidth':'160px',
-                        'whiteSpace':'normal',
-                        'textAlign': 'center',
-                        },
-        )
+        data = df.to_dict('records')
+        columns = [{'id': c, 'name': c, 'deletable': True, 'renamable': True, 'selectable': True} for c in df.columns]
         
-        return dashT
+        style = {'width': '95.3%',
+                'height': '610px', 
+                'border-radius': '15px',
+                'box-shadow': '1px 1px 1px grey',
+                'background-color': '#f0f0f0',
+                'padding': '10px',
+                'margin-bottom': '10px',
+            }
+        
+        style_table={'height': '460px', 'overflowX': 'auto', 'overflowY': 'auto'}
+        return data, columns, style_table, style
         
 
-@app.callback([Output('var-select1', 'options'),
-               Output('var-select1', 'value')],
-              [Input('main_df', 'data'),
-               Input('cat_vars', 'children')],
-            )
-def update_output2(df, cat_vars):
-    try:
-        df = pd.read_json(df)
-        ls = sorted(list(set(list(df))))
-        options = [{"label": i, "value": i} for i in ls]
-        ls = [ls[0]]
-        return options, ls
-    
-    except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
-
-
-@app.callback([Output('var-select2', 'options'),
-               Output('var-select2', 'value')],
-              [Input('main_df', 'data'),
-               Input('cat_vars', 'children')],
-            )
-def update_output3(df, cat_vars):
-    
-    try:
-        df = pd.read_json(df)
-        ls = sorted(list(set(list(df))))
-        options = [{"label": i, "value": i} for i in ls]
-        ls = [ls[0]]
-        return options, ls
-    
-    except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
+@app.callback(
+    Output('data_table', 'selected_columns'),
+    Input('data_table', 'columns')
+)
+def select_all_columns(columns):
+    # Select all column IDs
+    selected_columns = [col['id'] for col in columns]
+    return selected_columns
 
 
 @app.callback([Output('xvar', 'options'),
                Output('xvar', 'value'),
                Output('yvar', 'options'),
                Output('yvar', 'value')],
-              [Input('main_df', 'data'),
+              [Input('data_table', 'data'), 
+               Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars1(df, cat_vars):
+def update_select_vars1(df, selected_cols, cat_vars):
     try:
-        df = pd.read_json(df)
-        df.drop(labels=cat_vars, axis=1, inplace=True)
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [{"label": 'Nothing loaded', "value": 'Nothing loaded'}], ['Nothing loaded'], [{"label": 'Nothing loaded', "value": 'Nothing loaded'}], ['Nothing loaded']
+        
+        for l in cat_vars:
+            try:
+                df.drop(labels=[l], axis=1, inplace=True)
+            except:
+                pass
+        df = df.filter(items=selected_cols, axis=1)
         
         drop_vars = []
         for f in list(df):
@@ -2435,15 +3121,27 @@ def update_select_vars1(df, cat_vars):
 
 @app.callback([Output('xvar2', 'options'),
                Output('xvar2', 'value'),
+               Output('xvar2', 'optionHeight'),
                Output('yvar2', 'options'),
-               Output('yvar2', 'value')],
-              [Input('main_df', 'data'),
+               Output('yvar2', 'value'),
+               Output('yvar2', 'optionHeight'),],
+              [Input('data_table', 'data'),
+               Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars2(df, cat_vars):
+def update_select_vars2(df, selected_cols, cat_vars):
+    optionHeight = 30
     try:
-        df = pd.read_json(df)
-        df.drop(labels=cat_vars, axis=1, inplace=True)
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        
+        for l in cat_vars:
+            try:
+                df.drop(labels=[l], axis=1, inplace=True)
+            except:
+                pass
+        df = df.filter(items=selected_cols, axis=1)
         
         drop_vars = []
         for f in list(df):
@@ -2452,24 +3150,56 @@ def update_select_vars2(df, cat_vars):
         df.drop(labels=drop_vars, axis=1, inplace=True)
         
         ls = sorted(list(set(list(df))))
+        
+        lens = []
+        for l in ls:
+            lens.append(len(l))
+        maxl = max(lens)
+        print('maxl:', maxl)
+        
+        if maxl < 40:
+            optionHeight = 50
+        elif maxl < 50:
+            optionHeight = 60
+        elif maxl < 60:
+            optionHeight = 70
+        elif maxl < 80:
+            optionHeight = 90
+        elif maxl < 100:
+            optionHeight = 110
+        else:
+            optionHeight = 140
+            
         options = [{"label": i, "value": i} for i in ls]
-        return options, ls, options, ls
+        return options, ls, optionHeight, options, ls, optionHeight
     
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
+        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
         
 
 @app.callback([Output('xvar2_quant', 'options'),
                Output('xvar2_quant', 'value'),
+               Output('xvar2_quant', 'optionHeight'),
                Output('yvar2_quant', 'options'),
-               Output('yvar2_quant', 'value')],
-              [Input('main_df', 'data'),
+               Output('yvar2_quant', 'value'),
+               Output('yvar2_quant', 'optionHeight')],
+              [Input('data_table', 'data'),
+               Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars2(df, cat_vars):
+def update_select_vars2_quant(df, selected_cols, cat_vars):
+    optionHeight = 30
     try:
-        df = pd.read_json(df)
-        df.drop(labels=cat_vars, axis=1, inplace=True)
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        
+        for l in cat_vars:
+            try:
+                df.drop(labels=[l], axis=1, inplace=True)
+            except:
+                pass
+        df = df.filter(items=selected_cols, axis=1)
         
         drop_vars = []
         for f in list(df):
@@ -2478,27 +3208,59 @@ def update_select_vars2(df, cat_vars):
         df.drop(labels=drop_vars, axis=1, inplace=True)
         
         ls = sorted(list(set(list(df))))
+        
+        lens = []
+        for l in ls:
+            lens.append(len(l))
+        maxl = max(lens)
+        print('maxl:', maxl)
+        
+        if maxl < 40:
+            optionHeight = 50
+        elif maxl < 50:
+            optionHeight = 60
+        elif maxl < 60:
+            optionHeight = 70
+        elif maxl < 80:
+            optionHeight = 90
+        elif maxl < 100:
+            optionHeight = 110
+        else:
+            optionHeight = 140
+            
         options = [{"label": i, "value": i} for i in ls]
-        return options, ls, options, ls
+        return options, ls, optionHeight, options, ls, optionHeight
     
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
- 
+        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+    
 
 @app.callback([Output('xvar3', 'options'),
                Output('xvar3', 'value'),
                Output('yvar3', 'options'),
-               Output('yvar3', 'value')],
-              [Input('main_df', 'data'),
+               Output('yvar3', 'value'),
+               Output('yvar3', 'optionHeight')],
+              [Input('data_table', 'data'),
+               Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars3(df, cat_vars):
+def update_select_vars3(df, selected_cols, cat_vars):
     # variables for multiple linear regression 
+    optionHeight = 30
     try:
-        df = pd.read_json(df)
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        
+        for l in cat_vars:
+            try:
+                df.drop(labels=[l], axis=1, inplace=True)
+            except:
+                pass
+        df = df.filter(items=selected_cols, axis=1)
+        
         ls1 = sorted(list(set(list(df))))
         options1 = [{"label": i, "value": i} for i in ls1]
-        df.drop(labels=cat_vars, axis=1, inplace=True)
         
         drop_vars = []
         for f in list(df):
@@ -2507,41 +3269,85 @@ def update_select_vars3(df, cat_vars):
         df.drop(labels=drop_vars, axis=1, inplace=True)
         
         ls2 = sorted(list(set(list(df))))
+        lens = []
+        for l in ls2:
+            lens.append(len(l))
+        maxl = max(lens)
+        print('maxl:', maxl)
+        
+        if maxl < 40:
+            optionHeight = 50
+        elif maxl < 50:
+            optionHeight = 60
+        elif maxl < 60:
+            optionHeight = 70
+        elif maxl < 80:
+            optionHeight = 80
+        elif maxl < 100:
+            optionHeight = 100
+        else:
+            optionHeight = 120
         options2 = [{"label": i, "value": i} for i in ls2]
         
-        return options1, ls1, options2, ls2
+        return options1, ls1, options2, ls2, optionHeight
         
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
+        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
         
         
 @app.callback([Output('xvar_logistic', 'options'),
                 Output('xvar_logistic', 'value'),
                 Output('yvar_logistic', 'options'),
-                Output('yvar_logistic', 'value')],
-                [Input('main_df', 'data'),
+                Output('yvar_logistic', 'value'),
+                Output('yvar_logistic', 'optionHeight')],
+                [Input('data_table', 'data'),
+                 Input('data_table', 'selected_columns'),
                 Input('cat_vars', 'children'),
                 Input('di_numerical_vars', 'children')],
             )
-def update_select_vars4(df, cat_vars, di_num_vars):
+def update_select_vars4(df, selected_cols, cat_vars, di_num_vars):
     # variables for multiple logistic regression 
+    optionHeight = 30
     try:
-        df = pd.read_json(df)
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        
+        df = df.filter(items=selected_cols, axis=1)
         tdf = df.copy(deep=True)
         
-        #tdf = df.drop(labels=cat_vars, axis=1, inplace=False)
         ls1 = sorted(list(set(list(tdf))))
         options1 = [{"label": i, "value": i} for i in ls1]
         
         tdf = df.filter(items=cat_vars + di_num_vars, axis=1)
         tdf, dropped, cat_vars_ls = dummify(tdf, cat_vars, False)
         ls2 = sorted(list(set(list(tdf))))
+        
+        lens = []
+        for l in ls2:
+            lens.append(len(l))
+        maxl = max(lens)
+        print('maxl:', maxl)
+        
+        if maxl < 40:
+            optionHeight = 30
+        elif maxl < 50:
+            optionHeight = 30
+        elif maxl < 60:
+            optionHeight = 40
+        elif maxl < 80:
+            optionHeight = 50
+        elif maxl < 100:
+            optionHeight = 60
+        else:
+            optionHeight = 80
+            
         options2 = [{"label": i, "value": i} for i in ls2]
                 
-        return options1, ls1, options2, ls2
+        return options1, ls1, options2, ls2, optionHeight
 
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
+        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
   
 
 
@@ -2550,57 +3356,65 @@ def update_select_vars4(df, cat_vars, di_num_vars):
                Output('rt0', 'children'),
                Output('fig1txt', 'children'),
                Output('table1txt', 'children'),
-               Output('btn_ss', 'n_clicks')
                ],
                [Input('upload-data', 'contents'),
+                Input('hcris', 'children'),
+                Input('hais', 'children'),
                 Input('btn1', 'n_clicks'),
-                Input('btn_ss', 'n_clicks')],
-               [State('main_df', 'data'),
+                Input('btn_ss', 'n_clicks'),
+                Input('btn_robust', 'n_clicks')],
+               [State('data_table', 'data'),
                 State('cat_vars', 'children'),
                 State('xvar', 'value'),
                 State('yvar', 'value')],
             )
-def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvars, yvars):
+def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartscale, robust, df, cat_vars, xvars, yvars):
     
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
-    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
-        return {}, {}, "", "", "", 0
-    
     
     if df is None or xvars is None or yvars is None or len(xvars) == 0 or len(yvars) == 0:
-            return {}, {}, "", "", "",0
+        return {}, {}, "", "", ""
+    
     elif len(xvars) == 1 and len(yvars) == 1 and xvars[0] == yvars[0]:
-            return {}, {}, "Error: Your predictor variable and response variable cannot be the same.", "", "",0
+        return {}, {}, "Error: Your predictor variable and response variable cannot be the same.", "", ""
     
     else:
-        df = pd.read_json(df)
+        df = pd.DataFrame(df)
+        if df.empty:
+            return {}, {}, "", "", ""
+        
         df.drop(labels=cat_vars, axis=1, inplace=True)
         vars_ = xvars + yvars
         vars_ = list(set(vars_))
         df = df.filter(items=vars_, axis=1)
         
         if df.shape[0] == 0:
-            return {}, {}, "Error: There are no rows in the data because of the variables you chose.", "", "",0
+            return {}, {}, "Error: There are no rows in the data because of the variables you chose.", "", ""
             
         else:
             
-            if smartscale == 1:
+            if smartscale % 2 != 0:
                 df, xvars, yvars = smart_scale(df, xvars, yvars)
 
             models = []
             coefs = []
             eqns = []
             r2s = []
+            adj_r2s = []
+            obs_pred_r2s = []
             #slopes = []
             intercepts = []
             pvals = []
             #rvals = []
+            bics = []
             aics = []
             ns = []
             Yvars = []
+            Yvars_short = []
             Xvars = []
+            Xvars_short = []
             llf_ls = []
             Xs = []
             Ys = []
@@ -2643,12 +3457,77 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
                         if model_type == 'linear': d = 1
                         elif model_type == 'quadratic': d = 2
                         elif model_type == 'cubic': d = 3
-                            
-                        polynomial_features = PolynomialFeatures(degree = d)
-                        xp = polynomial_features.fit_transform(x)
-                            
-                        model = sm.OLS(y, xp).fit()
                         
+                        if robust % 2 == 0:
+                            # Run OLS                        
+                            polynomial_features = PolynomialFeatures(degree = d)
+                            xp = polynomial_features.fit_transform(x)
+                            model = sm.OLS(y, xp).fit()
+                        
+                            ypred = model.predict(xp)
+                            ypred = ypred.tolist()
+                            
+                            r2 = model.rsquared
+                            try:
+                                r2 = round(r2,4)
+                            except:
+                                pass
+                            if r2 < 0:
+                                r2 = 0
+                                
+                            r2_adj = model.rsquared_adj
+                            try:
+                                r2_adj = round(r2_adj,4)
+                            except:
+                                pass
+                            if r2_adj < 0:
+                                r2_adj = 0
+                            
+                            try:
+                                y = y.flatten().tolist()
+                            except:
+                                pass
+                            
+                            op_r2 = obs_pred_rsquare(np.array(y), np.array(ypred))
+                            try:
+                                op_r2 = round(op_r2, 4)
+                            except:
+                                pass
+                            if op_r2 < 0:
+                                op_r2 = 0
+                            
+                        elif robust % 2 != 0:
+                            # Rub Robust Regression
+                            y_o = tdf[yvar].values.tolist()
+                            x_o = tdf[xvar].values.tolist()
+                            x_o, y_o = zip(*sorted(zip(x_o, y_o)))
+                            
+                            x = np.array(x_o)
+                            y = np.array(y_o)
+                            
+                            # Create polynomial features up to 3rd degree
+                            # Add a constant for the intercept
+                            
+                            if d == 1:
+                                X_poly = sm.add_constant(x) # For a 1st-degree
+                            elif d == 2:
+                                X_poly = np.column_stack((x, x**2))  # For a 2nd-degree polynomial (X, X^2)
+                                X_poly = sm.add_constant(X_poly)
+                            elif d == 3:
+                                X_poly = np.column_stack((x, x**2, x**3))  # For a 3rd-degree polynomial (X, X^2, X^3)
+                                X_poly = sm.add_constant(X_poly)
+                            
+                            # Fit a robust polynomial regression model
+                            model = sm.RLM(y, X_poly, M=sm.robust.norms.TukeyBiweight(), 
+                                           missing='drop').fit()
+                            
+                            ypred = model.fittedvalues
+                            op_r2 = round(obs_pred_rsquare(y, ypred),4)
+                            if op_r2 < 0:
+                                op_r2 = 0
+                            r2 = 'N/A'
+                            r2_adj = 'N/A'
+                            
                         # Shapiro-Wilk for normally distributed errors
                         #val, sw_p = stats.shapiro(model.resid)
                         #shapiro_wilk.append(sw_p)
@@ -2681,8 +3560,6 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
                             hc_p = 'N/A'
                         harvey_collier.append(hc_p)
                         
-                        ypred = model.predict(xp)
-                        ypred = ypred.tolist()
                         
                         intercepts.append(model.params[0])
                         coefs.append(model.params[1:])
@@ -2726,42 +3603,62 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
                             
                         eqns.append(eqn)
                         
-                        r2 = model.rsquared_adj
-                        if r2 < 0:
-                            r2 = 0
-                        r2_adj = model.rsquared_adj
-                        if r2_adj < 0:
-                            r2_adj = 0
+                        if robust % 2 == 0:
+                            aic = round(model.aic,4)
+                            bic = round(model.bic,4)
+                            fp = round(model.f_pvalue,4)
+                            llf = round(model.llf,4)
                             
-                        aic = model.aic
-                        #bic = model.bic
-                        fp = model.f_pvalue
-                        llf = model.llf
+                        else:
+                            aic = 'N/A'
+                            bic = 'N/A'
+                            fp = 'N/A'
+                            llf = 'N/A'
                         
                         Yvars.append(yvar)
                         Xvars.append(xvar)
+                        
+                        yvar_short = str(yvar)
+                        xvar_short = str(xvar)
+                        
+                        if len(yvar) > 60:
+                            yvar_short = yvar[0:30] + ' ... ' + yvar[-30:]
+                        if len(xvar) > 60:
+                            xvar_short = xvar[0:30] + ' ... ' + xvar[-30:]
+                        
+                        Yvars_short.append(yvar_short)
+                        Xvars_short.append(xvar_short)
+                        
                         models.append(model_type)
-                        r2s.append(np.round(r2_adj, 3))
-                        pvals.append(np.round(fp, 3))
-                        aics.append(np.round(aic, 3))
-                        llf_ls.append(np.round(llf, 5))
+                        r2s.append(r2)
+                        adj_r2s.append(r2_adj)
+                        obs_pred_r2s.append(op_r2)
+                        pvals.append(fp)
+                        bics.append(bic)
+                        aics.append(aic)
+                        llf_ls.append(llf)
                         ns.append(len(x))
                         Xs.append(x_o)
                         Ys.append(y_o)
                         PredY.append(ypred)
             
             del df
-            cols = ['y-variable', 'x-variable', 'Model', 'r-square', 'p-value', 'intercept', 'coefficients', 'AIC', 
-                    'log-likelihood', 'Durbin-Watson', 'Jarque-Bera (p-value)', 
+            cols = ['y-variable', 'x-variable', 'Model', 'r-square', 'adj. r-square', 'obs vs. pred r-square', 'p-value', 'intercept', 'coefficients', 'AIC', 
+                    'BIC', 'log-likelihood', 'Durbin-Watson', 'Jarque-Bera (p-value)', 
                     'Breusch-Pagan (p-value)', 'Harvey-Collier (p-value)']
             
             df_models = pd.DataFrame(columns=cols)
             df_models['y-variable'] = Yvars
             df_models['x-variable'] = Xvars
+            df_models['y-variable (short)'] = Yvars_short
+            df_models['x-variable (short)'] = Xvars_short
             df_models['Model'] = models
             df_models['r-square'] = r2s
+            df_models['adj. r-square'] = adj_r2s
+            df_models['obs vs. pred r-square'] = obs_pred_r2s
             df_models['p-value'] = pvals
             df_models['AIC'] = aics
+            df_models['BIC'] = bics
             df_models['log-likelihood'] = llf_ls
             df_models['ys'] = Ys
             df_models['xs'] = Xs
@@ -2776,9 +3673,9 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
             df_models['Harvey-Collier (p-value)'] = harvey_collier
             
             ###################### Figure ########################
+            
             fig_data = []
-                
-            df_models['label'] = df_models['y-variable'] + ' vs ' + df_models['x-variable']
+            df_models['label'] = df_models['y-variable (short)'] + '<br>' + '      vs.' + '<br>' + df_models['x-variable (short)']
             tdf = df_models[df_models['Model'] == 'cubic']
             tdf.sort_values(by='r-square', inplace=True, ascending=False)
             tdf = tdf.head(10)
@@ -2805,6 +3702,8 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
                     pred_y = pred_y[0]
                     r2 = tdf['r-square'].tolist()
                     r2 = r2[0]
+                    op_r2 = tdf['obs vs. pred r-square'].tolist()
+                    op_r2 = op_r2[0]
                 
                     obs_x, obs_y, pred_y = zip(*sorted(zip(obs_x, obs_y, pred_y)))
 
@@ -2826,13 +3725,16 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
                         line_dict = dict(color = clr, width = 2, dash='dash')
                     elif model == 'cubic':
                         line_dict = dict(color = clr, width = 2, dash='dot')
-                            
+                    
+                    if robust % 2 != 0:
+                        r2 = round(op_r2, 4)
+                        
                     fig_data.append(
                         go.Scatter(
                             x = obs_x,
                             y = pred_y,
                             mode = "lines",
-                            name = model + ': r<sup>2</sup> = '+str(np.round(r2, 3)),
+                            name = model + ': r<sup>2</sup> = '+str(r2),
                             opacity = 0.75,
                             line = line_dict,
                         )
@@ -2879,16 +3781,18 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
             )
             
             ################## Table ######################
+            df_models.drop(labels=['x-variable (short)', 'y-variable (short)'], axis=1, inplace=True)
             
             df_models = df_models[df_models['x-variable'].isin(xvars)]
             df_models = df_models[df_models['y-variable'].isin(yvars)]
             
-            df_table = df_models.filter(items=['y-variable', 'x-variable', 'Model', 'r-square', 'p-value', 'sample size', 
-                                               'Durbin-Watson', 'Jarque-Bera (p-value)', 
-                                               'Breusch-Pagan (p-value)', 'Harvey-Collier (p-value)',
-                                               'equation'])
+            cols = ['y-variable', 'x-variable', 'sample size', 'Model', 'r-square', 'adj. r-square', 'obs vs. pred r-square',
+                    'p-value', 'AIC', 'BIC', 'log-likelihood', 'Durbin-Watson', 'Jarque-Bera (p-value)', 
+                    'Breusch-Pagan (p-value)', 'Harvey-Collier (p-value)', 'equation']
             
-            df_table.sort_values(by='r-square', inplace=True, ascending=False)
+            df_table = df_models.filter(items=cols)
+            
+            df_table.sort_values(by='adj. r-square', inplace=True, ascending=False)
             
             dashT = dash_table.DataTable(
                 data=df_table.to_dict('records'),
@@ -2923,8 +3827,12 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
             txt2 += "Significant Jarque-Bera tests (p < 0.05) indicate non-normality. "
             txt2 += "Significant Breusch-Pagan tests (p < 0.05) indicate heteroskedasticity. "
             txt2 += "Significant Harvey-Collier test (p < 0.05) indicate non-linearity. "
+            
+            if robust == 1:
+                txt2 += "\nNote, outputs of robust regression do not include AIC, BIC, log-likelihood, or p-values from an F-test, or typical r-square and adjusted r-square values. Instead, r-square values for robust regression are based on observed vs predicted, i.e., a linear regression between observed and predicted values with the slope constrained to 1 and the intercept constrained to 0."
+            
             #txt2 += "Failing these tests may indicate that a particular analysis has  is not ipso facto fatal." #The Harvey-Collier test is often questionable."
-            return figure, dashT, "", txt1, txt2, 0
+            return figure, dashT, "", txt1, txt2
             
     
 
@@ -2932,133 +3840,203 @@ def update_simple_regressions(contents, n_clicks, smartscale, df, cat_vars, xvar
 @app.callback([Output('figure_plot2', 'figure'),
                 Output('rt3', 'children'),
                 Output('fig2txt', 'children'),
-                Output('residuals_plot1', 'figure')],
+                Output('residuals_plot1', 'figure'),
+                Output('btn_robust2', 'n_clicks'),
+                Output('single_table_txt', 'children'),
+                Output('single_table_1', 'children'),
+                Output('single_table_2', 'children'),],
                 [Input('upload-data', 'contents'),
-                 Input('btn2', 'n_clicks')],
+                 Input('hcris', 'children'),
+                 Input('hais', 'children'),
+                 Input('btn2', 'n_clicks'),
+                 Input('btn_robust2', 'n_clicks')],
                 [State('xvar2', 'value'),
                  State('yvar2', 'value'),
                  State('x_transform', 'value'),
                  State('y_transform', 'value'),
                  State('model2', 'value'),
-                 State('main_df', 'data')],
+                 State('data_table', 'data')],
             )
-def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_transform, model, df):
+def update_single_regression(contents1, content2, contents3, n_clicks, robust, xvar, yvar, x_transform, y_transform, model, df):
         
-        ctx1 = dash.callback_context
-        jd1 = json.dumps({'triggered': ctx1.triggered,})
-        jd1 = jd1[:50]
-        if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
-            return {}, "", "", {}
+    cols = ['Model information', 'Model statistics']
+    df_table1 = pd.DataFrame(columns=cols)
+    df_table1['Model information'] = [np.nan]*3
+    df_table1['Model statistics'] = [np.nan]*3
+            
+    dashT1 = dash_table.DataTable(
+        data=df_table1.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table1.columns],
+            
+        page_action='none',
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+                
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    'minwidth':'140px',
+                    'width':'160px',
+                    'maxwidth':'160px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
+        )
+            
+    cols = ['Parameter', 'coef', 'std err', 't', 'P>|t|', '[0.025]', '[0.975]']
+    df_table2 = pd.DataFrame(columns=cols)
+    df_table2['Parameter'] = [np.nan]*3
+    df_table2['coef'] = [np.nan]*3
+    df_table2['std err'] = [np.nan]*3
+    df_table2['t'] = [np.nan]*3
+    df_table2['P>|t|'] = [np.nan]*3
+    df_table2['[0.025]'] = [np.nan]*3
+        
+    dashT2 = dash_table.DataTable(
+        data=df_table2.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table2.columns],
+            
+        page_action='none',
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+            
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    'minwidth':'140px',
+                    'width':'160px',
+                    'maxwidth':'160px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
+    )  
+        
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, "", "", {}, 0, "", dashT1, dashT2
     
-        if df is None or xvar is None or yvar is None or xvar == yvar or isinstance(yvar, list) is True or isinstance(yvar, list) is True:
+    try:
+        df = pd.DataFrame(df)
+    except:
+        return {}, "", "", {}, 0, "", dashT1, dashT2
+    
+    if df is None or df.empty or xvar is None or yvar is None or xvar == yvar or isinstance(yvar, list) is True or isinstance(yvar, list) is True:
             
-            if df is None:
-                return {}, "", "", {}
+        if df is None or df.empty:
+            return {}, "", "", {}, 0, "", dashT1, dashT2
             
-            elif (isinstance(xvar, list) is True or xvar is None) & (isinstance(yvar, list) is True or yvar is None):
-                return {}, "Error: You need to select some variables.", "", {}
+        elif (isinstance(xvar, list) is True or xvar is None) & (isinstance(yvar, list) is True or yvar is None):
+            return {}, "Error: You need to select some variables.", "", {}, 0, "", dashT1, dashT2
+        
+        elif isinstance(yvar, list) is True or yvar is None:
+            return {}, "Error: You need to select a response variable.", "", {}, 0, "", dashT1, dashT2
             
-            elif isinstance(yvar, list) is True or yvar is None:
-                return {}, "Error: You need to select a response variable.", "", {}
+        elif isinstance(xvar, list) is True or xvar is None:
+            return {}, "Error: You need to select an predictor variable.", "", {}, 0, "", dashT1, dashT2
             
-            elif isinstance(xvar, list) is True or xvar is None:
-                return {}, "Error: You need to select an predictor variable.", "", {}
-            
-            elif xvar == yvar and xvar is not None:
-                return {}, "Error: Your predictor variable and response variable are the same. Ensure they are different.", "", {}
-            else:
-                return {}, "", "", {}
-            
+        elif xvar == yvar and xvar is not None:
+            return {}, "Error: Your predictor variable and response variable are the same. Ensure they are different.", "", {}, 0, "", dashT1, dashT2
         else:
-            df = pd.read_json(df)
-            df = df.filter(items=[xvar, yvar], axis=1)
+            return {}, "", "", {}, 0, "", dashT1, dashT2
             
-            if x_transform == 'log10':
-                df[xvar] = np.log10(df[xvar])
-                df.rename(columns={xvar: "log<sub>10</sub>(" + xvar + ")"}, inplace=True)
-                xvar = "log<sub>10</sub>(" + xvar + ")"
-                
-            elif x_transform == 'square root':
-                df[xvar] = df[xvar]**0.5
-                df.rename(columns={xvar: "\u221A(" + xvar + ")"}, inplace=True)
-                xvar = "\u221A(" + xvar + ")"
-                
-            elif x_transform == 'cube root':
-                df[xvar] = df[xvar]**(1/3)
-                df.rename(columns={xvar: "\u221B(" + xvar + ")"}, inplace=True)
-                xvar = "\u221B(" + xvar + ")"
-                
-            elif x_transform == 'squared':
-                df[xvar] = df[xvar]**2
-                df.rename(columns={xvar: "(" + xvar + ")\u00B2"}, inplace=True)
-                xvar = "(" + xvar + ")\u00B2"
-                
-            elif x_transform == 'cubed':
-                df.rename(columns={xvar: "(" + xvar + ")\u00B3"}, inplace=True)
-                xvar = "(" + xvar + ")\u00B3"
-                
-            elif x_transform == 'log-modulo':
-                lmt = np.log10(np.abs(df[xvar]) + 1).tolist()
-                for i, val in enumerate(df[xvar].tolist()):
-                    if val < 0:
-                        lmt[i] = lmt[i] * -1
-                df[xvar] = lmt  
-                df.rename(columns={xvar: "log-modulo(" + xvar + ")"}, inplace=True)
-                xvar = "log-modulo(" + xvar + ")"
-                
-            elif x_transform == 'log-shift':
-                df[xvar] = np.log10(df[xvar] + 1).tolist()
-                df.rename(columns={xvar: "log-shift(" + xvar + ")"}, inplace=True)
-                xvar = "log-shift(" + xvar + ")"
+    else:
+        df = df.filter(items=[xvar, yvar], axis=1)
             
+        if x_transform == 'log10':
+            df[xvar] = np.log10(df[xvar])
+            df.rename(columns={xvar: "log<sub>10</sub>(" + xvar + ")"}, inplace=True)
+            xvar = "log<sub>10</sub>(" + xvar + ")"
+                
+        elif x_transform == 'square root':
+            df[xvar] = df[xvar]**0.5
+            df.rename(columns={xvar: "\u221A(" + xvar + ")"}, inplace=True)
+            xvar = "\u221A(" + xvar + ")"
+                
+        elif x_transform == 'cube root':
+            df[xvar] = df[xvar]**(1/3)
+            df.rename(columns={xvar: "\u221B(" + xvar + ")"}, inplace=True)
+            xvar = "\u221B(" + xvar + ")"
+                
+        elif x_transform == 'squared':
+            df[xvar] = df[xvar]**2
+            df.rename(columns={xvar: "(" + xvar + ")\u00B2"}, inplace=True)
+            xvar = "(" + xvar + ")\u00B2"
+                
+        elif x_transform == 'cubed':
+            df.rename(columns={xvar: "(" + xvar + ")\u00B3"}, inplace=True)
+            xvar = "(" + xvar + ")\u00B3"
             
+        elif x_transform == 'log-modulo':
+            lmt = np.log10(np.abs(df[xvar]) + 1).tolist()
+            for i, val in enumerate(df[xvar].tolist()):
+                if val < 0:
+                    lmt[i] = lmt[i] * -1
+            df[xvar] = lmt  
+            df.rename(columns={xvar: "log-modulo(" + xvar + ")"}, inplace=True)
+            xvar = "log-modulo(" + xvar + ")"
             
-            if y_transform == 'log10':
-                df[yvar] = np.log10(df[yvar])
-                df.rename(columns={yvar: "log<sub>10</sub>(" + yvar + ")"}, inplace=True)
-                yvar = "log<sub>10</sub>(" + yvar + ")"
+        elif x_transform == 'log-shift':
+            df[xvar] = np.log10(df[xvar] + 1).tolist()
+            df.rename(columns={xvar: "log-shift(" + xvar + ")"}, inplace=True)
+            xvar = "log-shift(" + xvar + ")"
+        
+        if y_transform == 'log10':
+            df[yvar] = np.log10(df[yvar])
+            df.rename(columns={yvar: "log<sub>10</sub>(" + yvar + ")"}, inplace=True)
+            yvar = "log<sub>10</sub>(" + yvar + ")"
+            
+        elif y_transform == 'square root':
+            df[yvar] = df[yvar]**0.5
+            df.rename(columns={yvar: "\u221A(" + yvar + ")"}, inplace=True)
+            yvar = "\u221A(" + yvar + ")"
+            
+        elif y_transform == 'cube root':
+            df[yvar] = df[yvar]**(1/3)
+            df.rename(columns={yvar: "\u221B(" + yvar + ")"}, inplace=True)
+            yvar = "\u221B(" + yvar + ")"
+            
+        elif y_transform == 'squared':
+            df[yvar] = df[yvar]**2
+            df.rename(columns={yvar: "(" + yvar + ")\u00B2"}, inplace=True)
+            yvar = "(" + yvar + ")\u00B2"
+            
+        elif y_transform == 'cubed':
+            df.rename(columns={yvar: "(" + yvar + ")\u00B3"}, inplace=True)
+            yvar = "(" + yvar + ")\u00B3"
+            
+        elif y_transform == 'log-modulo':
+            lmt = np.log10(np.abs(df[yvar]) + 1).tolist()
+            for i, val in enumerate(df[yvar].tolist()):
+                if val < 0:
+                    lmt[i] = lmt[i] * -1
+            df[yvar] = lmt  
+            df.rename(columns={yvar: "log-modulo(" + yvar + ")"}, inplace=True)
+            yvar = "log-modulo(" + yvar + ")"
+            
+        elif y_transform == 'log-shift':
+            df[yvar] = np.log10(df[yvar] + 1).tolist()
+            df.rename(columns={yvar: "log-shift(" + yvar + ")"}, inplace=True)
+            yvar = "log-shift(" + yvar + ")"
+            
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df.dropna(how='any', inplace=True)
                 
-            elif y_transform == 'square root':
-                df[yvar] = df[yvar]**0.5
-                df.rename(columns={yvar: "\u221A(" + yvar + ")"}, inplace=True)
-                yvar = "\u221A(" + yvar + ")"
-                
-            elif y_transform == 'cube root':
-                df[yvar] = df[yvar]**(1/3)
-                df.rename(columns={yvar: "\u221B(" + yvar + ")"}, inplace=True)
-                yvar = "\u221B(" + yvar + ")"
-                
-            elif y_transform == 'squared':
-                df[yvar] = df[yvar]**2
-                df.rename(columns={yvar: "(" + yvar + ")\u00B2"}, inplace=True)
-                yvar = "(" + yvar + ")\u00B2"
-                
-            elif y_transform == 'cubed':
-                df.rename(columns={yvar: "(" + yvar + ")\u00B3"}, inplace=True)
-                yvar = "(" + yvar + ")\u00B3"
-                
-            elif y_transform == 'log-modulo':
-                lmt = np.log10(np.abs(df[yvar]) + 1).tolist()
-                for i, val in enumerate(df[yvar].tolist()):
-                    if val < 0:
-                        lmt[i] = lmt[i] * -1
-                df[yvar] = lmt  
-                df.rename(columns={yvar: "log-modulo(" + yvar + ")"}, inplace=True)
-                yvar = "log-modulo(" + yvar + ")"
-                
-            elif y_transform == 'log-shift':
-                df[yvar] = np.log10(df[yvar] + 1).tolist()
-                df.rename(columns={yvar: "log-shift(" + yvar + ")"}, inplace=True)
-                yvar = "log-shift(" + yvar + ")"
-                
-                
-            df.replace([np.inf, -np.inf], np.nan, inplace=True)
-            df.dropna(how='any', inplace=True)
-                
+        d = int()
+        if model == 'linear': d = 1
+        elif model == 'quadratic': d = 2
+        elif model == 'cubic': d = 3
+            
+        if robust == 0:
             y_o = df[yvar].values.tolist()
             x_o = df[xvar].values.tolist()
             x_o, y_o = zip(*sorted(zip(x_o, y_o)))
-            
+                
             x_o = np.array(x_o)
             y_o = np.array(y_o)
             
@@ -3069,324 +4047,466 @@ def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_tran
             inds = x.ravel().argsort()  # Sort x values and get index
             x = x.ravel()[inds].reshape(-1, 1)
             y = y[inds] #Sort y according to x sorted index
-            
-            d = int()
-            if model == 'linear': d = 1
-            elif model == 'quadratic': d = 2
-            elif model == 'cubic': d = 3
-            
+                
             polynomial_features = PolynomialFeatures(degree = d)
             xp = polynomial_features.fit_transform(x)
-                
+                    
             model = sm.OLS(y, xp).fit()
-            
-            # Jarque-Bera for normally distributed errors
-            jarque_bera_test = sms.jarque_bera(model.resid)
-            jarque_bera_p = round(jarque_bera_test[1], 4)
-            
-            # Durbin-Watson for autocorrelation
-            dw = stattools.durbin_watson(model.resid)
-            durbin_watson = round(dw, 4)
-            
-            # Breusch-Pagan for heteroskedasticity
-            breusch_pagan_test = sms.het_breuschpagan(model.resid, model.model.exog)
-            breusch_pagan_p = round(breusch_pagan_test[1],4)
-            
-            # Harvey-Collier multiplier test for linearity
-            if d == 1:
-                try:
-                    skip = 10 #len(model.params)  # bug in linear_harvey_collier
-                    rr = sms.recursive_olsresiduals(model, skip=skip, alpha=0.95, order_by=None)
-                    harvey_collier_test = stats.ttest_1samp(rr[3][skip:], 0)
-                    harvey_collier_p = round(harvey_collier_test[1], 4)
-                except:
-                    harvey_collier_p = np.nan
-            
-            else:
-                harvey_collier_p = np.nan
-            
             ypred = model.predict(xp)
             ypred = ypred.tolist()
-            
-            poly_coefs = model.params[1:].tolist()
-            poly_coefs.reverse()
-            
-            poly_exponents = list(range(1, len(poly_coefs)+1))
-            poly_exponents.reverse()
-            
-            eqn = 'y = '
-            for i, p in enumerate(poly_coefs):
-                exp = poly_exponents[i]
                 
-                if exp == 1:
-                    exp = 'x'
-                elif exp == 2:
-                    exp = 'x²'
-                elif exp == 3:
-                    exp = 'x³'
-                
-                if i == 0:
-                    p = round(p, 4)
-                    eqn = eqn + str(p) + exp
-                    
-                else:
-                    if p >= 0:
-                        p = round(p, 4)
-                        eqn = eqn + ' + ' + str(p) + exp
-                    else:
-                        p = round(p, 4)
-                        eqn = eqn + ' - ' + str(np.abs(p)) + exp
+        elif robust == 1:
+            # Rub Robust Regression
+            y_o = df[yvar].values.tolist()
+            x_o = df[xvar].values.tolist()
+            x_o, y_o = zip(*sorted(zip(x_o, y_o)))
             
-            b = model.params[0]
-            if b >= 0:
-                b = round(b, 4)
-                eqn = eqn + ' + ' + str(b)
+            x = np.array(x_o)
+            y = np.array(y_o)
+                
+            # Create polynomial features up to 3rd degree
+            # Add a constant for the intercept
+                
+            if d == 1:
+                X_poly = sm.add_constant(x) # For a 1st-degree
+            elif d == 2:
+                X_poly = np.column_stack((x, x**2))  # For a 2nd-degree polynomial (X, X^2)
+                X_poly = sm.add_constant(X_poly)
+            elif d == 3:
+                X_poly = np.column_stack((x, x**2, x**3))  # For a 3rd-degree polynomial (X, X^2, X^3)
+                X_poly = sm.add_constant(X_poly)
+                
+            # Fit a robust polynomial regression model
+            model = sm.RLM(y, X_poly, M=sm.robust.norms.TukeyBiweight(), 
+                           missing='drop').fit()
+            ypred = model.fittedvalues
+                
+        # Jarque-Bera for normally distributed errors
+        jarque_bera_test = sms.jarque_bera(model.resid)
+        jarque_bera_p = round(jarque_bera_test[1], 4)
+            
+        # Durbin-Watson for autocorrelation
+        dw = stattools.durbin_watson(model.resid)
+        durbin_watson = round(dw, 4)
+            
+        # Breusch-Pagan for heteroskedasticity
+        breusch_pagan_test = sms.het_breuschpagan(model.resid, model.model.exog)
+        breusch_pagan_p = round(breusch_pagan_test[1],4)
+            
+        # Harvey-Collier multiplier test for linearity
+        if d == 1:
+            try:
+                skip = 10 #len(model.params)  # bug in linear_harvey_collier
+                rr = sms.recursive_olsresiduals(model, skip=skip, alpha=0.95, order_by=None)
+                harvey_collier_test = stats.ttest_1samp(rr[3][skip:], 0)
+                harvey_collier_p = round(harvey_collier_test[1], 4)
+            except:
+                harvey_collier_p = np.nan
+        
+        else:
+            harvey_collier_p = np.nan
+        
+        poly_coefs = model.params[1:].tolist()
+        poly_coefs.reverse()
+        
+        poly_exponents = list(range(1, len(poly_coefs)+1))
+        poly_exponents.reverse()
+            
+        eqn = 'y = '
+        for i, p in enumerate(poly_coefs):
+            exp = poly_exponents[i]
+                
+            if exp == 1:
+                exp = 'x'
+            elif exp == 2:
+                exp = 'x²'
+            elif exp == 3:
+                exp = 'x³'
+            
+            if i == 0:
+                p = round(p, 4)
+                eqn = eqn + str(p) + exp
+                
             else:
-                b = round(b, 4)
-                eqn = eqn + ' - ' + str(np.abs(b))
-                
-            r2 = model.rsquared_adj
-            r2_adj = model.rsquared_adj
-            aic = model.aic
-            bic = model.bic
-            fp = model.f_pvalue
-            llf = model.llf
+                if p >= 0:
+                    p = round(p, 4)
+                    eqn = eqn + ' + ' + str(p) + exp
+                else:
+                    p = round(p, 4)
+                    eqn = eqn + ' - ' + str(np.abs(p)) + exp
+        
+        b = model.params[0]
+        if b >= 0:
+            b = round(b, 4)
+            eqn = eqn + ' + ' + str(b)
+        else:
+            b = round(b, 4)
+            eqn = eqn + ' - ' + str(np.abs(b))
+        
+        try:
+            y = y.flatten().tolist()
+        except:
+            pass
+        op_r2 = obs_pred_rsquare(np.array(y), np.array(ypred))
+        try:
+            op_r2 = round(op_r2, 4)
+        except:
+            pass
+        if op_r2 < 0:
+            op_r2 = 0
+            
+        if robust == 0:
+            r2 = round(model.rsquared, 4)
+            r2_adj = round(model.rsquared_adj, 4)
+            aic = round(model.aic, 4)
+            bic = round(model.bic, 4)
+            fp = round(model.f_pvalue, 4)
+            llf = round(model.llf, 4)
             
             st, data, ss2 = summary_table(model, alpha=0.05)
             fittedvalues = data[:, 2]
             predict_mean_se  = data[:, 3]
-            predict_mean_ci_low, predict_mean_ci_upp = data[:, 4:6].T
-            predict_ci_low, predict_ci_upp = data[:, 6:8].T
+            predict_mean_ci_low, predict_mean_ci_upp = data[:, 4:6].T # confidence interval
+            predict_ci_low, predict_ci_upp = data[:, 6:8].T # prediction interval
             
-            outlier_y = []
-            outlier_x = []
-            nonoutlier_y = []
-            nonoutlier_x = []
-            for i, yi in enumerate(y_o):
-                if yi > predict_ci_upp[i] or yi < predict_ci_low[i]:
-                    outlier_y.append(yi)
-                    outlier_x.append(x_o[i])
-                else:
-                    nonoutlier_y.append(yi)
-                    nonoutlier_x.append(x_o[i])
-                    
-            fig_data = []
+        elif robust == 1:
+            r2 = 'N/A'
+            r2_adj = 'N/A'
+            aic = 'N/A'
+            bic = 'N/A'
+            fp = 'N/A'
+            llf = 'N/A'
+        
+            # Calculate the standard error of residuals
+            residuals = model.resid
+            standard_error_residuals = np.std(residuals)
             
-            clr = "#3399ff"
-            
-            obs_pred_r2 = obs_pred_rsquare(y_o, ypred)
-            obs_pred_r2 = str(np.round(obs_pred_r2, 3))
-            
-            fig_data.append(go.Scatter(
-                                x = nonoutlier_x,
-                                y = nonoutlier_y,
-                                name = 'Non-outliers',
-                                mode = "markers",
-                                opacity = 0.75,
-                                marker = dict(size=10,
-                                            color=clr)
-                            )
-                        )
-                        
-            fig_data.append(go.Scatter(
-                    x = outlier_x,
-                    y = outlier_y,
-                    name = 'Outliers',
-                    mode = "markers",
-                    opacity = 0.75,
-                    marker = dict(size=10,
-                                color="#ff0000")
-                )
-            )
-            
-            fig_data.append(
-                        go.Scatter(
-                            x = x_o,
-                            y = ypred,
-                            mode = "lines",
-                            name = 'r<sup>2</sup> (fitted) =' + str(np.round(r2_adj,3)) + '<br>r<sup>2</sup> (obs vs pred) =' + obs_pred_r2,
-                            opacity = 0.75,
-                            line = dict(color = clr, width = 2),
-                        )
-                    )
-            
-            fig_data.append(
-                go.Scatter(
-                    x = x_o,
-                    y = predict_mean_ci_upp,
-                    mode = "lines",
-                    name = 'upper 95 CI',
-                    opacity = 0.75,
-                    line = dict(color = clr, width = 2, dash='dash'),
-                )
-            )
-            
-            fig_data.append(
-                go.Scatter(
-                    x = x_o,
-                    y = predict_mean_ci_low,
-                    mode = "lines",
-                    name = 'lower 95 CI',
-                    opacity = 0.75,
-                    line = dict(color = clr, width = 2, dash='dash'),
-                )
-            )
-            
-            fig_data.append(
-                go.Scatter(
-                    x = x_o,
-                    y = predict_ci_upp,
-                    mode = "lines",
-                    name = 'upper 95 PI',
-                    opacity = 0.75,
-                    line = dict(color = clr, width = 2, dash='dot'),
-                )
-            )
-            
-            fig_data.append(
-                go.Scatter(
-                    x = x_o,
-                    y = predict_ci_low,
-                    mode = "lines",
-                    name = 'lower 95 PI',
-                    opacity = 0.75,
-                    line = dict(color = clr, width = 2, dash='dot'),
-                )
-            )
-
-              
-            figure = go.Figure(
-                data = fig_data,
-                layout = go.Layout(
-                    xaxis = dict(
-                        title = dict(
-                            text = "<b>" + xvar + "</b>",
-                            font = dict(
-                                family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
-                                " Helvetica, Arial, sans-serif",
-                                size = 18,
-                            ),
-                        ),
-                        #rangemode="tozero",
-                        #zeroline=True,
-                        showticklabels = True,
-                    ),
-                                
-                    yaxis = dict(
-                        title = dict(
-                            text = "<b>" + yvar + "</b>",
-                            font = dict(
-                                family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
-                                " Helvetica, Arial, sans-serif",
-                                size = 18,
-                                        
-                            ),
-                        ),
-                        #rangemode="tozero",
-                        #zeroline=True,
-                        showticklabels = True,
-                    ),
-                                
-                    margin = dict(l=60, r=30, b=10, t=40),
-                    showlegend = True,
-                    height = 400,
-                    paper_bgcolor = "rgb(245, 247, 249)",
-                    plot_bgcolor = "rgb(245, 247, 249)",
-                ),
-            )
-
-            
-            txt = "The Jarque-Bera test suggests "
-            if jarque_bera_p < 0.05:
-                txt += "non-"
-            txt += "normally distributed residuals (p = " + str(jarque_bera_p) + "). "
-            
-            txt += "The Breusch-Pagan test suggests that the residuals are "
-            if breusch_pagan_p < 0.05:
-                txt += "not "
-            txt += "homoskedastic (p = " + str(breusch_pagan_p) + "). "
-            
-            txt += "The Durbin-Watson statistic indicates "
-            if durbin_watson < 1.5 or durbin_watson > 2.5:
-                txt += "non-"
-            txt += "independent observations (DW = " + str(durbin_watson) + "). "
-            
-            txt += "The Harvey-Collier test  "
-            if d != 1:
-                txt += "was not suitable for this analysis. "
-            elif np.isnan(harvey_collier_p) == True:
-                txt += "failed to execute. "
-            elif harvey_collier_p < 0.05:
-                txt += "indicates the relationship is not linear (p = " + str(harvey_collier_p) + "). "
-            elif harvey_collier_p >= 0.05:
-                txt += "indicates the relationship is linear (p = " + str(harvey_collier_p) + "). "
+            # Set the desired confidence level
+            confidence_level = 0.95
                 
+            # Calculate the critical t-value
+            dof = len(x_o) - model.df_model - 1  # Degrees of freedom
+            t_value = stats.t.ppf((1 + confidence_level) / 2, dof)
             
-            #######################################################################
-            #################   Residuals Plot   ################################## 
-            #######################################################################
+            x_plot = x_o
+
+            # Create empty arrays to store the upper and lower bounds for the confidence intervals
+            lower_ci_limit = np.zeros(len(x_plot))
+            upper_ci_limit = np.zeros(len(x_plot))
+            lower_pi_limit = np.zeros(len(x_plot))
+            upper_pi_limit = np.zeros(len(x_plot))
             
-            fig_data2 = []
+            # Calculate confidence intervals for each x value
+            for i, x in enumerate(x_plot):
+                if d == 1:
+                    x_poly = [1, x,]
+                elif d == 2:
+                    x_poly = [1, x, x**2]
+                elif d == 3:
+                    x_poly = [1, x, x**2, x**3]
+                    
+                # Confidence Intervals
+                ci_multiplier = t_value * np.sqrt(np.dot(x_poly, np.dot(model.cov_params(), x_poly)))
+                ci_interval = ci_multiplier
+                lower_ci_limit[i] = model.predict(exog=x_poly) - ci_interval
+                upper_ci_limit[i] = model.predict(exog=x_poly) + ci_interval
             
-            fig_data2.append(go.Scatter(
-                                x = x_o,
-                                y = model.resid,
-                                #x = nonoutlier_x,
-                                #y = nonoutlier_y,
-                                name = 'residuals',
-                                mode = "markers",
-                                opacity = 0.75,
-                                marker = dict(size=10,
-                                            color=clr)
-                            )
-                        )
+                # Prediction Intervals
+                y_pred = np.dot(model.params, x_poly)
+                lower_pi_limit[i] = y_pred - t_value * standard_error_residuals
+                upper_pi_limit[i] = y_pred + t_value * standard_error_residuals
             
-            res_figure = go.Figure(
-                data = fig_data2,
-                layout = go.Layout(
-                    xaxis = dict(
-                        title = dict(
-                            text = "<b>" + xvar + "</b>",
-                            font = dict(
-                                family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
-                                " Helvetica, Arial, sans-serif",
-                                size = 18,
-                            ),
-                        ),
-                        #rangemode="tozero",
-                        #zeroline=True,
-                        showticklabels = True,
-                    ),
-                                
-                    yaxis = dict(
-                        title = dict(
-                            text = "<b>" + "Residuals" + "</b>",
-                            font = dict(
-                                family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
-                                " Helvetica, Arial, sans-serif",
-                                size = 18,
-                                        
-                            ),
-                        ),
-                        #rangemode="tozero",
-                        #zeroline=True,
-                        showticklabels = True,
-                    ),
-                                
-                    margin = dict(l=60, r=30, b=10, t=40),
-                    showlegend = True,
-                    height = 400,
-                    paper_bgcolor = "rgb(245, 247, 249)",
-                    plot_bgcolor = "rgb(245, 247, 249)",
-                ),
+            predict_mean_ci_low = lower_ci_limit
+            predict_mean_ci_upp = upper_ci_limit
+            
+            predict_ci_low = lower_pi_limit
+            predict_ci_upp = upper_pi_limit
+            
+            
+        outlier_y = []
+        outlier_x = []
+        nonoutlier_y = []
+        nonoutlier_x = []
+        for i, yi in enumerate(y_o):
+            if yi > predict_ci_upp[i] or yi < predict_ci_low[i]:
+                outlier_y.append(yi)
+                outlier_x.append(x_o[i])
+            else:
+                nonoutlier_y.append(yi)
+                nonoutlier_x.append(x_o[i])
+                
+        fig_data = []
+            
+        clr = "#3399ff"
+            
+        obs_pred_r2 = obs_pred_rsquare(y_o, ypred)
+        obs_pred_r2 = str(np.round(obs_pred_r2, 3))
+            
+        fig_data.append(go.Scatter(
+            x = nonoutlier_x,
+            y = nonoutlier_y,
+            name = 'Non-outliers',
+            mode = "markers",
+            opacity = 0.75,
+            marker = dict(size=10,
+                          color=clr)
+            )
+            )
+                        
+        fig_data.append(go.Scatter(
+            x = outlier_x,
+            y = outlier_y,
+            name = 'Outliers',
+            mode = "markers",
+            opacity = 0.75,
+            marker = dict(size=10,
+                          color="#ff0000")
+            )
+        )
+            
+        fig_data.append(
+            go.Scatter(
+                x = x_o,
+                y = ypred,
+                mode = "lines",
+                name = 'r<sup>2</sup> (fitted) =' + str(r2) + '<br>r<sup>2</sup> (adjusted) =' + str(r2_adj) + '<br>r<sup>2</sup> (obs vs pred) =' + obs_pred_r2,
+                opacity = 0.75,
+                line = dict(color = clr, width = 2),
+                )
             )
             
+        fig_data.append(
+            go.Scatter(
+                x = x_o,
+                y = predict_mean_ci_upp,
+                mode = "lines",
+                name = 'upper 95 CI',
+                opacity = 0.75,
+                line = dict(color = clr, width = 2, dash='dash'),
+            )
+        )
             
-            return figure, "", txt, res_figure
+        fig_data.append(
+            go.Scatter(
+                x = x_o,
+                y = predict_mean_ci_low,
+                mode = "lines",
+                name = 'lower 95 CI',
+                opacity = 0.75,
+                line = dict(color = clr, width = 2, dash='dash'),
+            )
+        )
+            
+        fig_data.append(
+            go.Scatter(
+                x = x_o,
+                y = predict_ci_upp,
+                mode = "lines",
+                name = 'upper 95 PI',
+                opacity = 0.75,
+                line = dict(color = clr, width = 2, dash='dot'),
+            )
+        )
+            
+        fig_data.append(
+            go.Scatter(
+                x = x_o,
+                y = predict_ci_low,
+                mode = "lines",
+                name = 'lower 95 PI',
+                opacity = 0.75,
+                line = dict(color = clr, width = 2, dash='dot'),
+            )
+        )
+              
+        figure = go.Figure(
+            data = fig_data,
+            layout = go.Layout(
+                xaxis = dict(
+                    title = dict(
+                        text = "<b>" + xvar + "</b>",
+                        font = dict(
+                            family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif",
+                            size = 18,
+                        ),
+                    ),
+                    #rangemode="tozero",
+                    #zeroline=True,
+                    showticklabels = True,
+                ),
+                                
+                yaxis = dict(
+                    title = dict(
+                        text = "<b>" + yvar + "</b>",
+                        font = dict(
+                            family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif",
+                            size = 18,
+                            
+                        ),
+                    ),
+                    #rangemode="tozero",
+                    #zeroline=True,
+                    showticklabels = True,
+                ),
+                
+                margin = dict(l=60, r=30, b=10, t=40),
+                showlegend = True,
+                height = 400,
+                paper_bgcolor = "rgb(245, 247, 249)",
+                plot_bgcolor = "rgb(245, 247, 249)",
+            ),
+        )
 
-
-
-
+            
+        txt = "The Jarque-Bera test suggests "
+        if jarque_bera_p < 0.05:
+            txt += "non-"
+        txt += "normally distributed residuals (p = " + str(jarque_bera_p) + "). "
+        
+        txt += "The Breusch-Pagan test suggests that the residuals are "
+        if breusch_pagan_p < 0.05:
+            txt += "not "
+        txt += "homoskedastic (p = " + str(breusch_pagan_p) + "). "
+        
+        txt += "The Durbin-Watson statistic indicates "
+        if durbin_watson < 1.5 or durbin_watson > 2.5:
+            txt += "non-"
+        txt += "independent observations (DW = " + str(durbin_watson) + "). "
+        
+        txt += "The Harvey-Collier test  "
+        if d != 1:
+            txt += "was not suitable for this analysis. "
+        elif np.isnan(harvey_collier_p) == True:
+            txt += "failed to execute. "
+        elif harvey_collier_p < 0.05:
+            txt += "indicates the relationship is not linear (p = " + str(harvey_collier_p) + "). "
+        elif harvey_collier_p >= 0.05:
+            txt += "indicates the relationship is linear (p = " + str(harvey_collier_p) + "). "
+            
+            
+        #######################################################################
+        #################   Residuals Plot   ################################## 
+        #######################################################################
+            
+        fig_data2 = []
+        fig_data2.append(go.Scatter(
+            x = x_o,
+            y = model.resid,
+            #x = nonoutlier_x,
+            #y = nonoutlier_y,
+            name = 'residuals',
+            mode = "markers",
+            opacity = 0.75,
+            marker = dict(size=10,
+                          color=clr)
+            )
+            )
+            
+        res_figure = go.Figure(
+            data = fig_data2,
+            layout = go.Layout(
+                xaxis = dict(
+                    title = dict(
+                        text = "<b>" + xvar + "</b>",
+                        font = dict(
+                            family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif",
+                            size = 18,
+                        ),
+                    ),
+                    #rangemode="tozero",
+                    #zeroline=True,
+                    showticklabels = True,
+                ),
+                                
+                yaxis = dict(
+                    title = dict(
+                        text = "<b>" + "Residuals" + "</b>",
+                        font = dict(
+                            family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif",
+                            size = 18,
+                            
+                        ),
+                    ),
+                    #rangemode="tozero",
+                    #zeroline=True,
+                    showticklabels = True,
+                ),
+                
+                margin = dict(l=60, r=30, b=10, t=40),
+                showlegend = True,
+                height = 400,
+                paper_bgcolor = "rgb(245, 247, 249)",
+                plot_bgcolor = "rgb(245, 247, 249)",
+            ),
+        )
+        
+        
+        ######################################### Result Tables ###################################
+        results_summary = model.summary()
+        
+        results_as_html1 = results_summary.tables[0].as_html()
+        df1_summary = pd.read_html(results_as_html1)[0]
+        #df1_summary['index'] = df1_summary.index
+        df1_summary = df1_summary.astype(str)
+        col_names = list(df1_summary)
+        
+        df3 = pd.DataFrame(columns=['Model information', 'Model statistics'])
+        df3['Model information']  = df1_summary[col_names[0]].astype(str) + ' ' + df1_summary[col_names[1]].astype(str) 
+        df3['Model statistics'] = df1_summary[col_names[2]].astype(str) + ' ' + df1_summary[col_names[3]].astype(str) 
+        #del df3, df1_summary
+        
+        dashT1 = dash_table.DataTable(
+            data=df3.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df3.columns],
+            export_format="csv",
+            #page_action='none',
+            #sort_action="native",
+            #sort_mode="multi",
+            #filter_action="native",
+            
+            style_table={'height': '250px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
+        )
+        
+        
+        results_as_html2 = results_summary.tables[1].as_html()
+        df2_summary = pd.read_html(results_as_html2, header=0)[0]
+        df2_summary.rename(columns={"Unnamed: 0": "Parameter"}, inplace=True)
+        
+        dashT2 = dash_table.DataTable(
+            data=df2_summary.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df2_summary.columns],
+            export_format="csv",
+            #page_action='none',
+            #sort_action="native",
+            #sort_mode="multi",
+            #filter_action="native",
+            
+            style_table={'height': '200px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
+        )
+        
+        return figure, "", txt, res_figure, 0, "", dashT1, dashT2
 
 
 
@@ -3401,16 +4521,18 @@ def update_single_regression(contents, n_clicks, xvar, yvar, x_transform, y_tran
                 Output('quant_table_2', 'children'),
                 ],
                 [Input('upload-data', 'contents'),
+                 Input('hcris', 'children'),
+                 Input('hais', 'children'),
                  Input('btn2_quant', 'n_clicks')],
                 [State('xvar2_quant', 'value'),
                  State('yvar2_quant', 'value'),
                  State('x_transform_quant', 'value'),
                  State('y_transform_quant', 'value'),
                  State('model2_quant', 'value'),
-                 State('main_df', 'data'),
+                 State('data_table', 'data'),
                  State('quantiles', 'value')],
             )
-def update_quantile_regression(contents, n_clicks, xvar, yvar, x_transform, y_transform, model, df, quantiles):
+def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, yvar, x_transform, y_transform, model, df, quantiles):
         
     cols = ['Model information', 'Model statistics']
     df_table1 = pd.DataFrame(columns=cols)
@@ -3494,7 +4616,10 @@ def update_quantile_regression(contents, n_clicks, xvar, yvar, x_transform, y_tr
             return {}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
             
     else:
-        df = pd.read_json(df)
+        df = pd.DataFrame(df)
+        if df.empty:
+            return {}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+        
         df = df.filter(items=[xvar, yvar], axis=1)
             
         if x_transform == 'log10':
@@ -3977,15 +5102,17 @@ def update_quantile_regression(contents, n_clicks, xvar, yvar, x_transform, y_tr
                Output('tab3btxt', 'children'),
                Output('btn_ss2', 'n_clicks')],
               [Input('upload-data', 'contents'),
+               Input('hcris', 'children'),
+               Input('hais', 'children'),
                Input('btn3', 'n_clicks'),
                Input('btn_ss2', 'n_clicks')],
               [State('xvar3', 'value'),
                State('yvar3', 'value'),
-               State('main_df', 'data'),
+               State('data_table', 'data'),
                State('cat_vars', 'children'),
                State('rfecv', 'value')],
         )
-def update_multiple_regression(contents, n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
+def update_multiple_regression(contents1, contents2, contents3, n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
     
                         
     cols = ['Model information', 'Model statistics']
@@ -4072,7 +5199,9 @@ def update_multiple_regression(contents, n_clicks, smartscale, xvars, yvar, df, 
     elif xvars is None or len(xvars) < 2:
         return {}, dashT1, dashT2, "Error: Select two or more predictors", [0], "", "", 0
     
-    df = pd.read_json(df)
+    df = pd.DataFrame(df)
+    if df.empty:
+        return {}, dashT1, dashT2, "", [0], "", "", 0
     
     if yvar not in list(df):
         return {}, dashT1, dashT2, "Error: Choose a response variable", [0], "", "", 0
@@ -4253,14 +5382,16 @@ def update_multiple_regression(contents, n_clicks, smartscale, xvars, yvar, df, 
                 Output('btn_ss3', 'n_clicks'),
                 ],
                 [Input('upload-data', 'contents'),
+                 Input('hcris', 'children'),
+                 Input('hais', 'children'),
                  Input('btn4', 'n_clicks'),
                  Input('btn_ss3', 'n_clicks')],
-                [State('main_df', 'data'),
+                [State('data_table', 'data'),
                 State('xvar_logistic', 'value'),
                 State('yvar_logistic', 'value'),
                 State('cat_vars', 'children')],
             )
-def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, yvar, cat_vars):
+def update_logistic_regression(contents1, contents2, contents3, n_clicks, smartscale, main_df, xvars, yvar, cat_vars):
     
     figure = go.Figure(data=[go.Table(
                     header=dict(values=[],
@@ -4351,8 +5482,8 @@ def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, y
     elif yvar is None and xvars is None:
         return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
     
-    elif xvars is None or len(xvars) < 2:
-        return {}, {}, dashT1, dashT2, "Error: Select two or more features for your predictors", [0], "", "", "", "", 0
+    elif xvars is None:
+        return {}, {}, dashT1, dashT2, "Error: Select one or more features for your predictors", [0], "", "", "", "", 0
         
     elif yvar is None:
         return {}, {}, dashT1, dashT2, "Error: Select a feature for your response variable", [0], "", "", "", "", 0
@@ -4363,10 +5494,10 @@ def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, y
     elif isinstance(yvar, list) is True:
         return {}, {}, dashT1, dashT2, "Error: Select a feature for your response variable", [0], "", "", "", "", 0
     
-    elif xvars is None or len(xvars) < 2:
-        return {}, {}, dashT1, dashT2, "Error: Select two or more features for your predictors", [0], "", "", "", "", 0
     
-    main_df = pd.read_json(main_df)
+    main_df = pd.DataFrame(main_df)
+    if main_df.empty:
+        return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
     
     y_prefix = str(yvar)
     if ':' in yvar:
@@ -4385,7 +5516,6 @@ def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, y
     main_df, dropped, cat_vars_ls = dummify_logistic(main_df, vars_, y_prefix, True)
     
     if yvar not in list(main_df):
-        
         return {}, {}, dashT1, dashT2, "Error: Choose a feature for your response variable", [0], "", "", "", "", 0
     
     yvals = main_df[yvar].tolist()
@@ -4393,16 +5523,16 @@ def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, y
     if len(unique_yvals) < 2:
         return {}, {}, dashT1, dashT2, "Error: Your chosen response variable only contains one unique value: " + str(unique_yvals[0]), [0], "", "", "", "", 0
     
-    if y_prefix in xvars:
-        xvars.remove(y_prefix)
-        if len(xvars) == 1:
-            return {}, {}, dashT1, dashT2, "Error: Multiple logistic regression requires 2 or more predictors. You chose two but one of them contains your response variable.", [0], "", "", "", "", 0
+    #if y_prefix in xvars:
+    #    xvars.remove(y_prefix)
+    #    if len(xvars) == 1:
+    #        return {}, {}, dashT1, dashT2, "Error: Multiple logistic regression requires 2 or more predictors. You chose two but one of them contains your response variable.", [0], "", "", "", "", 0
     
     y_prefix = y_prefix + ":"
     for i in list(main_df):
         if y_prefix in i and i != yvar:
             main_df.drop(labels=[i], axis=1, inplace=True)
-        
+    
     models_df, df1_summary, df2_summary, error, pred_df = run_logistic_regression(main_df, xvars, yvar, cat_vars)
     
     if error == 1 and smartscale == 1:
@@ -4412,6 +5542,15 @@ def update_logistic_regression(contents, n_clicks, smartscale, main_df, xvars, y
     if error == 1 and smartscale == 0:
         error = "Error: The model exceeded the maximum iterations in trying to find a fit. Try using Smart Scale. You might also have one or more severely redundant (multicollinear) predictors included. Try removing one or more potentially problematic predictors. Tip: Eliminate redundant predictors, predictors of little-to-no interest, or categorical variables with many levels, e.g., a column of diagnosis codes may have hundreds of different codes."
         return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+    
+    if error == 2:
+        error = "Error: The response variable must contain two unique values (e.g., 0 and 1). However, after removing rows with missing data, your chosen y-variable (" + yvar + ") only contains one unique value. Rows with missing data are removed because the logistic model will fail if the dataset contains any missing data. Try starting with fewer predictors. Once you have a working model, then try adding more to achieve better performance."
+        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+    
+    if error == 3:
+        error = "Error: After removing rows with missing data, your dataset no longer contains any rows matching your chosen y-variable (" + yvar + "). Rows with missing data are removed because the logistic model will fail if the dataset contains any missing data. Try starting with fewer predictors. Once you have a working model, then try adding more to achieve better performance."
+        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+    
         
         
     fpr = models_df['FPR'].tolist()

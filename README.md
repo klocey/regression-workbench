@@ -109,7 +109,7 @@ Files in this directory are used by the application to format its interface or a
 This extensionless file is necessary for deployment on Heroku, and essentially tells Heroku how to handle web processes using the gunicorn server. The file contains a single line with the following: `web: gunicorn app:server`
 </details>
 
-<details><summary>requirements.txt</summary>
+<details><summary>requirements.txt</summary>	
 This file lists all of the software libraries needed for the app to run. When deploying the app on Heroku, this file is used to set up the server with the libraries necessary for running the application. When used locally, this file tells pip which libraries need to be installed (i.e., `pip install -r requirements.txt`).
 </details>
 
