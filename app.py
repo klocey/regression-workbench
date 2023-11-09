@@ -1,41 +1,50 @@
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, GammaRegressor
+from sklearn.linear_model import TweedieRegressor, PoissonRegressor
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn.metrics import mean_squared_error
 from sklearn.feature_selection import RFECV
-from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import KFold
 
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.outliers_influence import summary_table
-import statsmodels.stats.diagnostic as sm_diagnostic
+from statsmodels.genmod.generalized_linear_model import GLM
+from statsmodels.genmod.families import Poisson
 import statsmodels.stats.stattools as stattools
 import statsmodels.formula.api as smf
 import statsmodels.stats.api as sms
 import statsmodels.api as sm
 
+from lifelines import CoxPHFitter, KaplanMeierFitter
+from lifelines.utils import concordance_index
+from lifelines import KaplanMeierFitter
+from lifelines import NelsonAalenFitter
+
 from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from dash import dcc, html, dash_table
-from dash.exceptions import PreventUpdate
 import dash
 
 import plotly.graph_objects as go
 from scipy import stats
-from scipy.stats import t
 import pandas as pd
 import numpy as np
-import datetime
+import contextlib
 import warnings
 import random
 import base64
 import json
-import sys
-import math
 import io
 import os
 
-#########################################################################################
-################################# CONFIG APP ############################################
-#########################################################################################
+import matplotlib.pyplot as plt
+plt.switch_backend('Agg')
+
+####################################################################################################
+#################################      CONFIG APP      #############################################
+####################################################################################################
+
 
 FONT_AWESOME = "https://use.fontawesome.com/releases/v5.10.2/css/all.css"
 chriddyp = 'https://codepen.io/chriddyp/pen/bWLwgP.css'
@@ -52,9 +61,10 @@ server = app.server
 xvars = ['Nothing uploaded']
 yvar = 'Nothing uploaded'
 
-#########################################################################################
-########################### CUSTOM FUNCTIONS ############################################
-#########################################################################################
+####################################################################################################
+###########################      CUSTOM FUNCTIONS      #############################################
+####################################################################################################
+
 
 def obs_pred_rsquare(obs, pred):
     '''
@@ -72,7 +82,6 @@ def obs_pred_rsquare(obs, pred):
     '''
     r2 = 1 - sum((obs - pred) ** 2) / sum((obs - np.mean(obs)) ** 2)
     return r2
-
 
 
 def smart_scale(df, predictors, responses):
@@ -102,12 +111,14 @@ def smart_scale(df, predictors, responses):
             continue
         
         else:
-            skewness = stats.skew(df[i], nan_policy='omit') # Based on the Fisher-Pearson coefficient      
+            # Based on the Fisher-Pearson coefficient
+            skewness = stats.skew(df[i], nan_policy='omit')       
             best_skew = float(skewness)
             best_lab = str(i)
             t_vals = df[i].tolist()
             
             if np.nanmin(df[i]) < 0: 
+                
                 # log-modulo transformation
                 lmt = np.log10(np.abs(df[i]) + 1).tolist()
                 for j, val in enumerate(df[i].tolist()):
@@ -161,7 +172,6 @@ def smart_scale(df, predictors, responses):
                     best_lab = '(' + i + ')\u00B2'
                     t_vals = st
                 
-                
             elif np.nanmin(df[i]) > 0:
                 lt = np.log10(df[i])
                 new_skew = stats.skew(lt, nan_policy='omit')
@@ -200,9 +210,8 @@ def smart_scale(df, predictors, responses):
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
     return df, predictors, responses
-        
-   
-    
+
+
 def dummify(df, cat_vars, dropone=True):
     
     '''
@@ -319,8 +328,6 @@ def dummify_logistic(df, cat_vars, y_prefix, dropone=True):
     return df, dropped, cat_var_ls
 
 
-
-
 def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
 
     X_train = df_train.copy(deep=True)
@@ -365,7 +372,8 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     
     for ls in cat_vars_ls:
         
-        check = list(set(ls) & set(supported_features)) # elements of ls that are in supported_features
+        # elements of ls that are in supported_features
+        check = list(set(ls) & set(supported_features)) 
         if len(check) == 0:
             supported_features = list(set(supported_features) - set(ls))
             for l in ls:
@@ -387,7 +395,7 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     results = sm.OLS(y_train, X_train_lm).fit()
     
     y_pred = results.predict(X_train_lm)
-    pval_df = results.pvalues
+    #pval_df = results.pvalues
     R2 = results.rsquared_adj
     if R2 < 0: R2 = 0
     
@@ -429,7 +437,7 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val):
     return y_train, y_pred, df1_summary, df2_summary, supported_features, unsupported, colors
     
 
-def run_logistic_regression(df, xvars, yvar, cat_vars):
+def run_logistic_regression(df, xvars, yvar, cat_vars, classifier_model):
     
     coefs = []
     r2s = []
@@ -458,7 +466,7 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     y_o = df[yvar]
     x_o = df.drop(labels=[yvar], axis=1, inplace=False)
     
-    ########## Eliminating features that are perfectly correlated to the response variable ###########
+    ########## Eliminating features that are perfectly correlated to the response variable #########
     perfect_correlates = []
     for xvar in list(x_o):
         x = x_o[xvar].tolist()
@@ -522,10 +530,6 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
                     else:
                         unsupported.append(lab)
                 
-                #if len(supported_features) >= 2:
-                #    if rfe_val == 'Yes':
-                        #X_train = X_train.filter(items = supported_features, axis=1)
-            
                 x_o = x_o.filter(items = supported_features, axis=1)
             except:
                 pass
@@ -534,7 +538,11 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     x_o_lm = sm.add_constant(x_o, has_constant='add')
     
     try:
-        model = sm.Logit(y_o, x_o_lm).fit(maxiter=30)
+        if classifier_model == 'Logistic':
+            model = sm.Logit(y_o, x_o_lm).fit(maxiter=30)
+        elif classifier_model == 'Probit':
+            model = sm.Probit(y_o, x_o_lm).fit(maxiter=30)
+        
     except:
         return None, None, None, 1, None
     
@@ -695,56 +703,500 @@ def run_logistic_regression(df, xvars, yvar, cat_vars):
     df.insert(0, col.name, col)
     
     return df_models, df1_summary, df2_summary, 0, df
-    
 
-#########################################################################################
-#################### DASH APP CONTROL CARDS  ############################################
-#########################################################################################
+
+def run_glm(df_train, xvars, yvar, cat_vars, rfe_val, family):
+    """
+    Perform Poisson regression using statsmodels.
+
+    Parameters:
+    - df_train (pd.DataFrame): The input data as a DataFrame.
+    - xvars (list): List of predictor column names.
+    - yvar (str): The name of the target column.
+    - cat_vars (list): List of categorical variable column names.
+    - rfe_val (str): 'Yes' or 'No' to indicate whether to use recursive feature elimination (RFE).
+
+    Returns:
+    - y_train (pd.Series): The target variable.
+    - y_pred (pd.Series): Predicted values.
+    - df1_summary (pd.DataFrame): Parameter estimates table.
+    - df2_summary (pd.DataFrame): Model summary table.
+    - supported_features (list): List of supported predictor variables.
+    - unsupported (list): List of unsupported predictor variables.
+    - colors (list): List of colors used for later processing.
+    """
+    
+    X_train = df_train.copy(deep=True)
+    X_train, dropped, cat_vars_ls = dummify(X_train, cat_vars)
+    
+    if X_train.shape[1] < 2:
+        return pd.Series(), pd.Series(), pd.DataFrame(), pd.DataFrame(), [], [], []
+    
+    # Eliminate features with many 0's
+    x_vars = list(X_train)
+    drop = []
+    for var in x_vars:
+        vals = X_train[var].tolist()
+        frac_0 = vals.count(0) / len(vals)
+        if frac_0 > 0.95:
+            drop.append(var)
+    
+    X_train.drop(labels=drop, axis=1, inplace=True)
+    X_train.dropna(how='any', inplace=True)
+    y_train = X_train.pop(yvar)
+    
+    supported_features = []
+    unsupported = []
+
+    results = [] 
+    ranks = []
+    xlabs = []
+    
+    # RUN RFECV
+    if family == 'Poisson':
+        poisson_model = PoissonRegressor()
+        rfecv = RFECV(estimator=poisson_model, cv=5)
+        
+    elif family == 'Binomial':
+        binomial_model = LogisticRegression()
+        rfecv = RFECV(estimator=binomial_model, cv=5)
+        
+    elif family == 'Gamma':
+        gamma_model = GammaRegressor()
+        rfecv = RFECV(estimator=gamma_model, cv=5)
+        
+    elif family == 'Gaussian':
+        gaussian_model = LinearRegression()
+        rfecv = RFECV(estimator=gaussian_model, cv=5)
+        
+    elif family == 'InverseGaussian':
+        inverse_gaussian_model = TweedieRegressor(power=0)  # Specify the power parameter for Inverse link
+        rfecv = RFECV(estimator=inverse_gaussian_model, cv=5)
+        
+    elif family == 'NegativeBinomial':
+        negative_binomial_model = PoissonRegressor()
+        rfecv = RFECV(estimator=negative_binomial_model, cv=5)
+        
+    elif family == 'Tweedie':
+        tweedie_model = TweedieRegressor(power=1.5)  # Adjust the power parameter as needed
+        rfecv = RFECV(estimator=tweedie_model, cv=5)
+    
+    rfecv.fit(X_train, y_train)
+    ranks = rfecv.ranking_
+    xlabs = rfecv.feature_names_in_    
+    supported_features = []
+    unsupported = []
+    
+    for i, lab in enumerate(xlabs):
+        if ranks[i] == 1:
+            supported_features.append(lab)
+        else:
+            unsupported.append(lab)
+    
+    for ls in cat_vars_ls:
+        
+        check = list(set(ls) & set(supported_features)) # elements of ls that are in supported_features
+        if len(check) == 0:
+            supported_features = list(set(supported_features) - set(ls))
+            for l in ls:
+                try:
+                    X_train.drop(l, axis=1, inplace=True)
+                    unsupported.append(l)
+                except:
+                    pass
+                    
+        elif len(check) > 0:
+            supported_features.extend(ls)
+            supported_features = list(set(supported_features))
+    
+    if len(supported_features) >= 2:
+        if rfe_val == 'Yes':
+            X_train = X_train.filter(items = supported_features, axis=1)
+    
+    X_train_lm = sm.add_constant(X_train, has_constant='add')
+    
+    if family == 'Poisson':
+        # Poisson (Log Link)
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.Poisson(sm.families.links.log())).fit()
+
+    elif family == 'Binomial': 
+        # Binomial (Logit Link)
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.Binomial(sm.families.links.logit())).fit()
+
+    elif family == 'Gamma':
+        # Gamma (Identity Link)
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.Gamma(sm.families.links.identity())).fit()
+
+    elif family == 'Gaussian':
+        # Gaussian (Identity Link)
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.Gaussian(sm.families.links.identity())).fit()
+
+    elif family == 'InverseGaussian':
+        # InverseGaussian (Inverse Link)
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.InverseGaussian(sm.families.links.inverse_power())).fit()
+
+    elif family == 'NegativeBinomial':
+        # NegativeBinomial (Log Link)
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.NegativeBinomial(sm.families.links.log())).fit()
+
+    elif family == 'Tweedie':
+        # Tweedie (Power Link), Adjust power parameter as needed
+        results = sm.GLM(y_train, X_train_lm, family=sm.families.Tweedie(sm.families.links.power(1.5))).fit()
+    
+    y_pred = results.predict(X_train_lm)
+    results_summary = results.summary()
+    
+    results_as_html1 = results_summary.tables[1].as_html()
+    df1_summary = pd.read_html(results_as_html1, header=0, index_col=None)[0]
+    df1_summary.rename(columns={'Unnamed: 0': 'Variable',}, inplace=True)
+    
+    results_as_html2 = results_summary.tables[0].as_html()
+    df2_summary = pd.read_html(results_as_html2, header=None, index_col=None)[0]
+    
+    for col in list(df2_summary):
+        df2_summary.rename(columns={col: str(col)}, inplace=True)
+    
+    vifs = [variance_inflation_factor(X_train.values, j) for j in range(X_train.shape[1])]
+    vifs2 = []
+    
+    print('\n\n')
+    print('df1_summary:')
+    print(df1_summary)
+    print('df1_summary.columns:')
+    print(df1_summary.columns)
+    print('\n')
+    print('df2_summary:')
+    print(df2_summary)
+    print('df2_summary.columns:')
+    print(df2_summary.columns)
+    print('\n')
+    
+    print(list(X_train), '\n')
+    print(list(X_train_lm), '\n')
+    print('xlabs:', xlabs, '\n')
+    
+    xlabs = list(X_train)
+    for p in df1_summary['Variable'].tolist():
+        if p == 'const':
+            vifs2.append(np.nan)
+        else:
+            i = xlabs.index(p)
+            vif = vifs[i]
+            vifs2.append(np.round(vif, 3))
+        
+    df1_summary['VIF'] = vifs2
+    colors = ["#3399ff"] * len(y_train)
+    
+    return y_train, y_pred, df1_summary, df2_summary, supported_features, unsupported, colors
+
+
+def run_cox(df, xvars, partial_effects_var, cat_vars, rfe_val, duration_var, event_var):
+
+    try:
+        partial_effects_var = partial_effects_var.replace(" ", "_")
+    except:
+        pass  
+    
+    try:
+        duration_var = duration_var.replace(" ", "_")
+    except:
+        pass
+    
+    try:
+        event_var = event_var.replace(" ", "_")
+    except:
+        pass  
+    
+    xvars2 = []
+    for v in xvars:
+        try:
+            v = v.replace(" ", "_")
+            xvars2.append(v)
+        except:
+            pass
+    xvars = list(xvars2)
+    
+    cat_vars2 = []
+    for v in cat_vars:
+        try:
+            v = v.replace(" ", "_")
+            cat_vars2.append(v)
+        except:
+            pass
+    cat_vars = list(cat_vars2)
+    
+    
+    labels = list(df)
+    for l in labels:
+        try:
+            l1 = l.replace(" ", "_")
+            df.rename(columns={l: l1}, inplace=True)
+        except:
+            pass
+    
+    del xvars2, labels
+    
+    df, dropped, cat_vars_ls = dummify(df, cat_vars)
+    
+    if df.shape[1] < 2:
+        return [], [], [], [], [], [], []
+    
+    ########## Eliminating features with many 0's ###########
+    x_vars = list(df)
+    drop = []
+    for var in x_vars:
+        vals = df[var].tolist()
+        frac_0 = vals.count(0)/len(vals)
+        if frac_0 > 0.95:
+            drop.append(var)
+    
+    df.drop(labels=drop, axis=1, inplace=True)
+    
+    ################################################################################################
+    ########## Eliminating features using VIF ######################################################
+    ################################################################################################
+    
+    d1 = df[partial_effects_var].tolist()
+    d2 = df[duration_var].tolist()
+    d3 = df[event_var].tolist()
+    df.drop(labels=[partial_effects_var, duration_var, event_var], axis=1, inplace=True)
+    
+    try:
+        x_vars.remove(partial_effects_var)
+    except:
+        pass
+    try:
+        x_vars.remove(duration_var)
+    except:
+        pass
+    try:
+        x_vars.remove(event_var)
+    except:
+        pass
+    
+    if rfe_val == 1 and len(x_vars) > 1:
+        while df.shape[1] > 2:
+            cols = list(df)
+            vifs = [variance_inflation_factor(df.values, j) for j in range(df.shape[1])]
+                    
+            max_vif = max(vifs)
+            if max_vif > 10:
+                i = vifs.index(max(vifs))
+                col = cols[i]
+                df.drop(labels=[col], axis=1, inplace=True)
+            else:
+                break
+    
+    df[partial_effects_var] = d1
+    df[duration_var] = d2
+    df[event_var] = d3
+    
+    ################################################################################################
+    ########## End VIF #############################################################################
+    ################################################################################################
+    
+    df.dropna(how='any', axis=0, inplace=True)
+    
+    # Fit the Cox Proportional-Hazards model using lifelines
+    
+    cph = CoxPHFitter()
+    cph.fit(df, duration_col=duration_var, event_col=event_var)
+    
+    with contextlib.redirect_stdout(io.StringIO()) as f:
+        cph.print_summary()
+
+    s = f.getvalue()
+    lines = s.split('\n')
+
+    cols = []
+    vals = []
+    i1 = 0
+    i2 = 0
+    
+    for i, line in enumerate(lines):
+        if ' = ' in line:
+            lines2 = line.split(' = ')
+            cols.append(lines2[0])
+            vals.append(lines2[1])
+        
+        if i1 == 0:
+            if '---' in line:
+                i1 = int(i)
+        
+        elif i1 > 0 and i2 == 0:
+            if '---' in line:
+                i2 = int(i)
+            
+    ################################################################################################
+    #######################    1st DataFrame    ####################################################
+    ################################################################################################
+                    
+    df_1 = pd.DataFrame(columns=['Model information', 'Model statistics'])
+    df_1['Model information'] = cols
+    df_1['Model statistics'] = vals
+
+    ################################################################################################
+    #######################    2nd DataFrame    ####################################################
+    ################################################################################################
+
+    data = []
+    lines = lines[i1:i2]
+    lines = lines[1:]
+    i1 = 0
+    for i, l in enumerate(lines):
+        l = l.strip()
+        if i == 0:
+            l = 'covariate  ' + l
+            data.append(l)
+        
+        elif i1 == 0:
+            if l.isspace() or l == '' or 'covariate' in l:
+                i1 = int(i)
+        
+        elif i1 > 0:
+            if l.isspace() or l == '':
+                continue
+            else:
+                data.append(l)
+
+    i_ls = []
+    for i, line in enumerate(data):
+        if line == 'covariate':
+            i_ls.append(i)
+        
+    i1 = i_ls[0] - 1
+    d1 = data[:i1]
+    d3 = []
+    d2 = data[i1:]
+    d4 = []
+
+    for i, l in enumerate(d1):
+        if i == 0:
+            ls1 = ['coef lower 95%', 'coef upper 95%', 'exp(coef) lower 95%', 
+                   'exp(coef) upper 95%', 'cmp to']
+            ls2 = ['coef_lower_95%', 'coef_upper_95%', 'exp(coef)_lower_95%', 
+                   'exp(coef)_upper_95%', 'cmp_to']
+            for li, l1 in enumerate(ls1):
+                if l1 in l:
+                    l = l.replace(l1, ls2[li])
+                
+            d3.append(l)
+        elif l == 'covariate':
+            continue
+        else:
+            d3.append(l)
+
+
+    for i, l in enumerate(d2):
+        if i == 0:
+            l = 'covariate  ' + l
+            ls1 = ['coef lower 95%', 'coef upper 95%', 'exp(coef) lower 95%', 
+                   'exp(coef) upper 95%', 'cmp to']
+            ls2 = ['coef_lower_95%', 'coef_upper_95%', 'exp(coef)_lower_95%', 
+                   'exp(coef)_upper_95%', 'cmp_to']
+            for li, l1 in enumerate(ls1):
+                if l1 in l:
+                    l = l.replace(l1, ls2[li])
+                
+            d4.append(l)
+        elif l == 'covariate':
+            continue
+        else:
+            d4.append(l)
+        
+    # Join the list of strings into a single string
+    d3_str = '\n'.join(d3)
+    # Use StringIO to create a file-like object
+    d3_file = io.StringIO(d3_str)
+    # Read the data as a pandas DataFrame, specifying the delimiter and header
+    d3 = pd.read_csv(d3_file, delim_whitespace=True, skipinitialspace=True)
+    d3.dropna(axis=1, how='all', inplace=True)
+
+    # Join the list of strings into a single string
+    d4_str = '\n'.join(d4)
+    # Use StringIO to create a file-like object
+    d4_file = io.StringIO(d4_str)
+    # Read the data as a pandas DataFrame, specifying the delimiter and header
+    d4 = pd.read_csv(d4_file, delim_whitespace=True, skipinitialspace=True)
+    d4.dropna(axis=1, how='all', inplace=True)
+
+    df_2 = d3.merge(d4, how='outer', on='covariate')
+    del d1, d2, d3, d4
+    
+    ################################################################################################
+    #######################    Survival Curves    ##################################################
+    ################################################################################################
+    
+    p10 = np.percentile(df, 10)
+    p50 = np.percentile(df, 50)
+    p90 = np.percentile(df, 90)
+    
+    fig = cph.plot_partial_effects_on_outcome(covariates = partial_effects_var, 
+                                              values=[p10, p50, p90], cmap='coolwarm')
+    
+    # Access the data from the plot and store it in lists
+    x_values = []
+    y_values = []
+    
+    for line in fig.get_lines():
+        x, y = line.get_data()
+        x_values.append(x)
+        y_values.append(y)
+    
+    '''
+    fig = cph.plot_cumulative_hazard()
+    # Access the data from the plot and store it in lists
+    x_values_haz = []
+    y_values_haz = []
+    
+    for line in fig.get_lines():
+        x, y = line.get_data()
+        x_values_haz.append(x)
+        y_values_haz.append(y)
+    
+    
+    '''
+    
+    return df_1, df_2, x_values, y_values
+
+
+####################################################################################################
+####################      DASH APP CONTROL CARDS       #############################################
+####################################################################################################
 
 
 def description_card1():
-    """
-    :return: A Div containing dashboard title & descriptions.
-    """
     return html.Div(
-        id="description-card1",
         children=[
             html.Div(
-                id="description-card1a",
                 children=[
                     html.H3("Regression workbench", 
-                            style={
-                                'textAlign': 'left',
-                                'margin-left': '20px',
-                                'color': '#2a8cff',
-                                }
+                            style={'textAlign': 'left', 
+                                   'margin-left': '2%', 
+                                   'color': '#2a8cff',
+                                   }
                     ),
+                    dcc.Markdown("Discover relationships within data using the most common tool " +
+                                 "of statistical analysis. This open-source analytical " +
+                                 "application offers simple and sophisticated forms of " +
+                                 "regression, automated analyses and optimizations, and provides " +
+                                 "user guidance and interpretive outputs. Use the web application" +
+                                 " or download the " +
+                                 "[source code] (https://github.com/klocey/regression-workbench)" +
+                                 " and run it locally.",
+                                 style={'textAlign': 'left', 
+                                        'margin-left': '3%',
+                                        },
+                                 ),
+                    html.Br(), 
                     control_card_upload1(),
-                    ],
-                style={
-                    'width': '45%',
-                    'display': 'inline-block',
-                },
+                    inspect_data_table(),
+                    control_card_choose_reg1(),
+                ],
+                style={ 'width': '99%', 
+                       'display': 'inline-block',
+                       },
                 ),
-            
-            html.Div(
-                id="description-card1b",
-                children=[
-                    dcc.Markdown("Discover relationships within data using the most common tool of statistical analysis, regression. This analytical application offers simple and sophisticated forms of regression, and provides user guidance, interpretive outputs, and automated data processing. Use this web application or download the [source code] (https://github.com/klocey/regression-workbench) and run it locally."),
-                    ],
-                    style={
-                        'textAlign': 'left',
-                        'justify-content': 'space-between',
-                        'margin-left': '10px',
-                        'margin-right': '0px',
-                        'margin-bottom': '0px',
-                        'width': '52%',
-                        'vertical-align': 'top',
-                        'display': 'inline-block',
-                        'padding': '20px',
-                    },
-            ),
-            
         ],
     )
 
@@ -758,27 +1210,32 @@ def description_card_final():
         children=[
             html.H5("Developer",
                     style={
-            'textAlign': 'left',
-            }),
-            html.P("Kenneth J. Locey, PhD. Senior clinical data scientist. Center for Quality, Safety and Value Analytics. Rush University Medical Center.",
+                        'textAlign': 'left',
+                        },
+                    ),
+            html.P("Kenneth J. Locey, PhD. Senior clinical data scientist. Center for Quality, " +
+                   "Safety and Value Analytics. Rush University Medical Center.",
                     style={
-            'textAlign': 'left',
-            }),
-            
+                        'textAlign': 'left',
+                        },
+                    ),
             html.H5("Testers",
                     style={
-            'textAlign': 'left',
-            }),
-            html.P("Ryan Schipfer. Senior clinical data scientist. Center for Quality, Safety and Value Analytics. Rush University Medical Center.",
+                        'textAlign': 'left',
+                        },
+                    ),
+            html.P("Ryan Schipfer. Senior clinical data scientist. Center for Quality, Safety " +
+                   "and Value Analytics. Rush University Medical Center.",
                     style={
-            'textAlign': 'left',
-            }),
-            html.P("Brittnie Dotson. Clinical data scientist. Center for Quality, Safety and Value Analytics. Rush University Medical Center.",
+                        'textAlign': 'left',
+                        },
+                    ),
+            html.P("Brittnie Dotson. Clinical data scientist. Center for Quality, Safety and " +
+                   "Value Analytics. Rush University Medical Center.",
                     style={
-            'textAlign': 'left',
-            }),
-            
-            
+                        'textAlign': 'left',
+                        },
+                    ),
         ],
     )
 
@@ -788,15 +1245,13 @@ def control_card_upload1():
     return html.Div(
         id="control-card-upload1",
         children=[
-            dbc.Button("Begin by loading a dataset",
+            dbc.Button("1. load a dataset",
                        id="open-centered-controlcard_load",
                        style={
                            "background-color": "#2a8cff",
                            'width': '99%',
-                           'font-size': 14,
-                           'display': 'inline-block',
-                           'margin-left': '20px',
-                           'margin-bottom': '25px',
+                           'font-size': 16,
+                           'display': 'inline-block',            
                            },
                 ),
             dbc.Modal(
@@ -805,21 +1260,21 @@ def control_card_upload1():
                             id="left-column1a",
                             className="one columns",
                             children=[control_card_upload1a()],
-                            style={'width': '46.64%',
-                                    'display': 'inline-block',
-                                    'border-radius': '15px',
-                                    'box-shadow': '1px 1px 1px grey',
-                                    'background-color': '#f0f0f0',
-                                    'padding': '10px',
-                                    'margin-bottom': '10px',
+                            style={'width': '46.0%',
+                                   'display': 'block',
+                                   'border-radius': '15px',
+                                   'box-shadow': '1px 1px 1px grey',
+                                   'background-color': '#f0f0f0',
+                                   'padding': '10px',
+                                   'margin-bottom': '10px',
                             },
                         ),
                     html.Div(
                             id="left-column1b",
                             className="one columns",
                             children=[control_card_upload1b()],
-                            style={'width': '46.64%',
-                                    'display': 'inline-block',
+                            style={'width': '46.0%',
+                                    'display': 'block',
                                     'border-radius': '15px',
                                     'box-shadow': '1px 1px 1px grey',
                                     'background-color': '#f0f0f0',
@@ -828,9 +1283,12 @@ def control_card_upload1():
                             },
                         ),
                     html.Br(), 
-                    ]),
+                    ],
+                    ),
                 dbc.ModalFooter(
-                        dbc.Button("Close", id="close-centered-controlcard_load", className="ml-auto")
+                        dbc.Button("Close", 
+                                   id="close-centered-controlcard_load", 
+                                   className="ml-auto")
                         ),
                 ],
                 id="modal-centered-controlcard_load",
@@ -843,51 +1301,65 @@ def control_card_upload1():
                 backdrop=True,
                 ),
                 ],
-        style={'width': '90%', 'display': 'inline-block',},
+        style={
+            'width': '28%',
+            'margin-left': '5%',
+            'margin-bottom': '1%',
+            'display': 'inline-block',
+            },
         )
 
 
 def control_card_upload1a():
     
-    '''
-    html.I(className="fas fa-question-circle fa-lg", id="target1_load",
-        style={'display': 'inline-block', 'width': '50px', 'color':'#99ccff'},
-        ),
-    dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", 
-                target="target1_load",
-        style = {'font-size': 12},
-        ),
-    '''
-    
     return html.Div(
         id="control-card-upload1a",
         children=[
-            html.H5("Option 1. Upload your own data", style={'display': 'inline-block',
-                                               'margin-right': '10px',
-                                               },),
-            html.I(className="fas fa-question-circle fa-lg", id="target1a",
-                style={'display': 'inline-block', 'width': '45px', 'color':'#99ccff'},
+            html.H5("Option 1. Upload your own data", 
+                    style={'display': 'inline-block',
+                           'margin-right': '1%',
+                           },
+                    ),
+            html.I(className="fas fa-question-circle fa-lg", 
+                   id="target1a",
+                   style={
+                       'display': 'inline-block', 
+                       'width': '5%', 
+                       'color':'#99ccff',
+                       },
                 ),
-            dbc.Tooltip("The app expects a simple format: rows, columns, and one row of column headers. Column headers should not have commas or colons. Data should not contain mixed types (both 10% and 10cm contain numeric and non-numeric characters).", 
+            dbc.Tooltip("Uploaded should have a simple format: rows, columns, and one row of " +
+                        "column headers. Headers should not have commas or colons. Data should " +
+                        "not have mixed types (10% and 10cm have numeric and non-numeric " +
+                        "characters).", 
                         target="target1a",
-                style = {'font-size': 12},
-                ),
-            html.P("This app only accepts .csv files. Data are deleted when the app is refreshed, closed, or when another file is uploaded. Still, do not upload sensitive data."),
+                        style = {
+                            'font-size': 14,
+                            },
+                        ),
+            html.P("This app only accepts .csv files. Data are deleted when the app is " +
+                   "refreshed, closed, or when another file is uploaded. Still, do not " +
+                   "upload sensitive data.",
+                   ),
             dcc.Upload(
                 id='upload-data',
                 children=html.Div([
                     'Drag and Drop or ',
-                    html.A('Select a CSV File', style={'color':'#2c8cff', "text-decoration": "underline"},),
-                ]),
+                    html.A('Select a CSV File', 
+                           style={'color':'#2c8cff', 
+                                  "text-decoration": "underline",
+                                  },
+                           ),
+                    ],
+                    ),
                 style={
                     'lineHeight': '34px',
                     'borderWidth': '2px',
                     'borderStyle': 'dashed',
                     'borderRadius': '5px',
                     'textAlign': 'center',
-                    'margin': '0px',
                 },
-                multiple=False
+                multiple=False,
             ),
             ],
         )
@@ -896,43 +1368,28 @@ def control_card_upload1a():
 def control_card_upload1b():
     
     return html.Div(
-        id="control-card-upload1b",
         children=[
-            html.H5("Option 2. Select a preprocessed dataset", style={'display': 'inline-block',
-                                                    'margin-right': '10px',
-                                                    },),
-            html.I(className="fas fa-question-circle fa-lg", id="target1b",
-                style={'display': 'inline-block', 'width': '50px', 'color':'#99ccff'},
-                ),
-            dbc.Tooltip("Column headers should be short and should not have commas or colons. Values to be analyzed should not contain mixed data types, e.g., 10% and 10cm contain numeric and non-numeric characters.", 
-                        target="target1b",
-                style = {'font-size': 12},
-                ),
-            
-            html.P("These preprocessed datasets are derived from publicly available data provided in peer-reviewed publications or by the Centers for Medicare and Medicaid Services."),
-            dbc.Button("Select dataset",
+            html.H5("Option 2. Select a healthcare dataset", 
+                    style={'display': 'inline-block',
+                           'margin-right': '5%',
+                           },
+                    ),
+            html.P("These preprocessed healthcare datasets are derived from publicly available " +
+                   "data provided in peer-reviewed publications or by the Centers for Medicare " +
+                   "and Medicaid Services."),
+            dbc.Button("Select a dataset",
                        id="open-centered-controlcard",
-                       #color="dark",
-                       #className="mr-1",
                        style={
                            "background-color": "#2a8cff",
                            'width': '95%',
-                               'font-size': 12,
-                           'display': 'inline-block',
-                           #"height": "40px", 
-                           #'padding': '10px',
-                           #'margin-bottom': '10px',
-                           'margin-right': '20px',
-                           #'margin-left': '11px',
+                           'font-size': 12,
                            },
                 ),
             dbc.Modal(
-                [dbc.ModalBody([control_card5(), 
+                [dbc.ModalBody([control_card_choose_data(), 
                                 html.Br(), 
-                                ]),
-                                #dbc.ModalFooter(
-                                #dbc.Button("Close", id="close-centered-controlcard", className="ml-auto")
-                                #),
+                                ],
+                               ),
                         ],
                 id="modal-centered-controlcard",
                 is_open=False,
@@ -947,28 +1404,244 @@ def control_card_upload1b():
         )
 
 
-def control_card5():
+def data_table():
+    return html.Div(
+        id='Data-Table1', 
+        className="ten columns",
+        children=[html.H5("Data Table", 
+                          style={'display': 'inline-block', 
+                                 'color': '#FFFFFF',
+                                 'width': '8.5%',
+                                 },
+                    ),
+            html.I(className="fas fa-question-circle fa-lg", 
+                   id="target_DataTable",
+                   style={'display': 'inline-block', 
+                          'width': '3%', 
+                          'color':'#99ccff',
+                          },
+                   ),
+            dbc.Tooltip("Use this table to ensure your data loaded as expected and to delete any " +
+                        "rows or select, delete, and rename any columns. There are no limits on " +
+                        "dataset size when running the application locally. But, when using the " +
+                        "web application, any dataset containing more than 5K rows or 50 columns " +
+                        "will be randomly sampled to meet those constraints.", 
+                        target="target_DataTable",
+                        style = {'font-size': 12, 
+                                #'display': 'inline-block',
+                            },
+                    ),
+                                      
+            html.P("", id='rt4'),
+                                  
+            dash_table.DataTable(
+                id='data_table',
+                columns=[{
+                    'name': 'Column {}'.format(i),
+                    'id': 'column-{}'.format(i),
+                    'deletable': True,
+                    'renamable': True,
+                    'selectable': True,
+                    } for i in range(1, 9)],
+                                        
+                data=None,
+                #virtualization=True,
+                editable=True,
+                page_action='native',
+                page_size=100,
+                filter_action='native',
+                sort_action='native',
+                row_deletable=True,
+                column_selectable='multi',
+                export_format='xlsx',
+                export_headers='display',
+                #fixed_rows={'headers': True},
+                                  
+                style_header={'padding':'1px', 
+                              'width':'250px', 
+                              'minWidth':'250px', 
+                              'maxWidth':'250px', 
+                              'textAlign': 'center', 
+                              'overflowX': 'auto',
+                              },
+                style_data = {'padding':'5px', 
+                              'width':'250px', 
+                              'minWidth':'250px', 
+                              'maxWidth':'250px', 
+                              'textAlign': 'center', 
+                              'overflowX': 'auto',
+                              },
+                style_table={'height': '120px', 
+                             'overflowX': 'auto',
+                             },
+                ),
+            
+            ],
+        style={'display':'block',
+               'width': '95%',
+               "background-color": "#696969",
+               }
+        )
+
+
+def inspect_data_table():
     
     return html.Div(
-        id="control-card-5",
         children=[
-            
+            dbc.Button("2. inspect your data",
+                       id="open-inspect_main_datatable",
+                       style={
+                           "background-color": "#2a8cff",
+                           'width': '99%',
+                           'font-size': 16,
+                           'display': 'inline-block',
+                           },
+                ),
+            dbc.Modal([
+                dbc.ModalBody([
+                        html.Div(
+                                id="left-column_inspect_table",
+                                className="one columns",
+                                children=[data_table()],
+                                style={'width': '100%'},
+                            ),
+                        html.Br(),
+                        ],
+                        style={'width': '100%',
+                               "background-color": "#696969",
+                               },
+                        ),
+                    dbc.ModalFooter(
+                        dbc.Button("Click to Close", 
+                                   id="close-inspect_main_datatable", 
+                                   className="ml-auto",
+                                   style={
+                                       "background-color": "#2a8cff",
+                                       'width': '30%',
+                                       'font-size': 14,
+                                       },
+                                   ),
+                        style={
+                            "background-color": "#696969",
+                            "display": "flex",
+                            "justify-content": "center",
+                            "align-items": "center",
+                            },
+                        ),
+                    ],
+                id="modal-inspect_main_datatable",
+                is_open=False,
+                centered=True,
+                autoFocus=True,
+                fullscreen=True,
+                keyboard=True,
+                fade=True,
+                ),
+                ],
+        style={'width': '28%', 
+               'display': 'inline-block',
+               'margin-left': '3%',
+               'margin-bottom': '1%',
+               },
+        )
+
+
+def control_card_choose_reg1():
+    
+    return html.Div(
+        children=[
+            dbc.Button("3. choose an analysis",
+                       id="open-choose_regression",
+                       style={
+                           "background-color": "#2a8cff",
+                           'width': '99%',
+                           'font-size': 16,
+                           'display': 'inline-block',
+                           },
+                ),
+            dbc.Modal(
+                [dbc.ModalBody([
+                    html.Div(
+                            id="left-column_choose_reg2",
+                            className="one columns",
+                            children=[control_card_choose_reg2()],
+                            style={'width': '100%',
+                                   'display': 'inline-block',
+                            },
+                        ),
+                    
+                    html.Br(), 
+                    ],
+                    ),
+                dbc.ModalFooter(
+                        dbc.Button("Close", 
+                                   id="close-choose_regression", 
+                                   className="ml-auto",
+                                   style={"background-color": "#2a8cff",
+                                          'width': '30%',
+                                          'font-size': 14,
+                                          },
+                                   ),
+                        style={ "background-color": "#696969",
+                            "display": "flex",
+                            "justify-content": "center",  # Center horizontally
+                            "align-items": "center",  # Center vertically)
+                            },
+                        ),
+                ],
+                id="modal-choose_regression",
+                is_open=False,
+                centered=True,
+                autoFocus=True,
+                size="xl",
+                keyboard=True,
+                fade=True,
+                backdrop=True,
+                ),
+                ],
+        style={'width': '28%', 
+               'display': 'inline-block',
+               'margin-left': '3%',
+               'margin-bottom': '2%',
+               },
+        )
+
+
+def control_card_choose_data():
+    return html.Div(
+        children=[
             html.Div(
-                id="data1",
                 children=[
-                    html.H5("Hospital Cost Reports", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("Each year, thousands of US hospitals submit cost reports to the Centers for Medicare and Medicaid Services. The data provided here was derived from a recently developed open-source [project] (https://github.com/klocey/HCRIS-databuilder/tree/master) and [application] (https://hcris-app.herokuapp.com/) for analyzing hospital cost report data. See the associated peer-reviewed [publication] (https://www.sciencedirect.com/science/article/pii/S2772442523001417) in Healthcare Analytics for details.",
-                                 style={'width': '94.1%'},),
+                    html.H5("Hospital Cost Reports", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("Each year, thousands of US hospitals submit cost reports to " +
+                                 "the Centers for Medicare and Medicaid Services. The data " +
+                                 "provided here are derived from a recently developed open-source" +
+                                 "[project](https://github.com/klocey/HCRIS-databuilder/tree/master)" +
+                                 " and [application] (https://hcris-app.herokuapp.com/) " +
+                                 " for analyzing hospital cost report data. See the associated " +
+                                 "peer-reviewed [publication]" +
+                                 "(https://www.sciencedirect.com/science/article/pii/S2772442523001417)" +
+                                 " in Healthcare Analytics for details.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
                     dcc.Dropdown(
                             id='hcris-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015', '2014', '2013', '2012',
-                                                                        '2011', '2010',]],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015', 
+                                                                        '2014', '2013', '2012',
+                                                                        '2011', '2010',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
-                                   'margin-bottom': '10px',
+                                   'margin-bottom': '1%',
                                  },
                             ),
                     dbc.Button("Load Cost Report dataset",
@@ -978,31 +1651,44 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                     html.Div(id='button-output'),
                 ],
                 style={'display': 'inline-block', 
                        'width': '45%',
-                       'margin-right': '40px',}
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       }
             ),
             
             html.Div(
-                id="data2",
                 children=[
-                    html.H5("Healthcare-Associated Infections", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("Healthcare-Associated Infections (HAIs) measures provide data on inpatient infections among individual hospitals. HAIs can relate to devices, surgical procedures, or the spread of bacterial infections. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/77hc-ibv8) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Healthcare-Associated Infections", 
+                            style={'display': 'inline-block', 
+                                   },
+                            ),
+                    dcc.Markdown("Healthcare-Associated Infections (HAIs) measures provide data" +
+                                 "on inpatient infections among individual hospitals. HAIs can " +
+                                 "relate to devices, surgical procedures, or the spread of " +
+                                 "bacterial infections. The data provided here are curated and " +
+                                 "compiled versions of [data] " +
+                                 "(https://data.cms.gov/provider-data/dataset/77hc-ibv8) " +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%',
+                                        }),
                     dcc.Dropdown(
                             id='hais-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015', '2014']],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015', 
+                                                                        '2014']
+                                     ],
+                            multi=False,
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
-                                   'margin-bottom': '10px',
+                                   'margin-bottom': '1%',
                                  },
                             ),
                     dbc.Button("Load HAI dataset",
@@ -1012,11 +1698,12 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
             ),
             
             html.Br(),
@@ -1024,17 +1711,29 @@ def control_card5():
             html.Br(),
             
             html.Div(
-                id="data3",
                 children=[
-                    html.H5("Complications and Deaths", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("This data set includes provider-level data for the hip/knee complication measure, the CMS Patient Safety Indicators, and 30-day death rates. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/ynj2-r877) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Complications and Deaths", 
+                            style={'display': 'inline-block', 
+                                   },
+                            ),
+                    dcc.Markdown("This data set includes provider-level data for the hip/knee " +
+                                 "complication measure, the CMS Patient Safety Indicators, and " +
+                                 "30-day death rates. The data provided here are curated and " +
+                                 "compiled versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/ynj2-r877) " +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
                     dcc.Dropdown(
                             id='c_and_d-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015', '2014']],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015', 
+                                                                        '2014']
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1047,25 +1746,39 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
             ),
             
             html.Div(
-                id="data4",
                 children=[
-                    html.H5("Hospital Acquired Conditions Reduction Program (HACRP)", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("CMS reduces Medicare fee-for-service payments by 1% for hospitals that rank in the worst-performing quartile of total hospital-acquired condition (HAC) scores. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/yq43-i98g) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Hospital Acquired Conditions Reduction Program (HACRP)", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                    dcc.Markdown("CMS reduces Medicare fee-for-service payments by 1% for " +
+                                 "hospitals that rank in the worst-performing quartile of " +
+                                 "total hospital-acquired condition (HAC) scores. The data " +
+                                 "provided here are curated and compiled versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/yq43-i98g) " +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'},
+                                 ),
                     dcc.Dropdown(
                             id='hacrp-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015']],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015']
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1078,11 +1791,12 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
             ),
             
             html.Br(),
@@ -1090,17 +1804,34 @@ def control_card5():
             html.Br(),
             
             html.Div(
-                id="data5",
                 children=[
-                    html.H5("Hospital Readmissions Reduction Program (HRRP)", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("CMS reduces Medicare payments for hospitals with excess readmissions, which are measured by the ratio of a hospital's predicted rate of readmissions for heart attack (AMI), heart failure (HF), pneumonia, chronic obstructive pulmonary disease (COPD), hip/knee replacement (THA/TKA), and coronary artery bypass graft surgery (CABG) to an expected rate, based on an average hospital with similar patients. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/9n3s-kdb3) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Hospital Readmissions Reduction Program (HRRP)", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("CMS reduces Medicare payments for hospitals with excess " +
+                                 "readmissions, which are measured by the ratio of a " +
+                                 "hospital's predicted rate of readmissions for heart attack " +
+                                 "(AMI), heart failure (HF), pneumonia, chronic obstructive " +
+                                 "pulmonary disease (COPD), hip/knee replacement (THA/TKA), " +
+                                 "and coronary artery bypass graft surgery (CABG) to an " +
+                                 "expected rate, based on an average hospital with similar " +
+                                 "patients. The data provided here are curated and compiled " +
+                                 "versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/9n3s-kdb3)" +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
                     dcc.Dropdown(
                             id='hrrp-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015', '2014', '2013']],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015', 
+                                                                        '2014', '2013']
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1113,25 +1844,43 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
             ),
             
             html.Div(
-                id="data6",
                 children=[
-                    html.H5("Payment and Value of Care", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("The Medicare Spending Per Beneficiary (MSPB or “Medicare hospital spending per patient”) measure shows whether Medicare spends more, less, or about the same on an episode of care for a Medicare patient treated in a specific inpatient hospital compared to how much Medicare spends on an episode of care across all inpatient hospitals nationally. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/c7us-v4mf) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Payment and Value of Care", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("The Medicare Spending Per Beneficiary (MSPB or “Medicare " +
+                                 "hospital spending per patient”) measure shows whether " +
+                                 "Medicare spends more, less, or about the same on an episode " +
+                                 "of care for a Medicare patient treated in a specific " +
+                                 "inpatient hospital compared to how much Medicare spends on " +
+                                 "an episode of care across all inpatient hospitals " +
+                                 "nationally. The data provided here are curated and compiled " +
+                                 "versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/c7us-v4mf) " +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
                     dcc.Dropdown(
                             id='p_and_v-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015',]],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015']
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1144,11 +1893,12 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       }
             ),
             
             html.Br(),
@@ -1156,17 +1906,33 @@ def control_card5():
             html.Br(),
             
             html.Div(
-                id="data7",
                 children=[
-                    html.H5("Timely and Effective Care", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("The measures of timely and effective care, also known as process of care measures, show how often or how quickly hospitals provide care that research shows gets the best results for patients with certain conditions, and how hospitals use outpatient medical imaging tests (like CT Scans and MRIs). The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/yv7e-xc69) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Timely and Effective Care", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                    dcc.Markdown("The measures of timely and effective care, also known as " +
+                                 "process of care measures, show how often or how quickly " +
+                                 "hospitals provide care that research shows gets the best " +
+                                 "results for patients with certain conditions, and how " + 
+                                 "hospitals use outpatient medical imaging tests (like CT " +
+                                 "Scans and MRIs). The data provided here are curated and " +
+                                 "compiled versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/yv7e-xc69)" +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'},
+                                 ),
                     dcc.Dropdown(
                             id='t_and_e-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018', '2017', '2016', 
-                                                                        '2015', '2014',]],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018', 
+                                                                        '2017', '2016', '2015', 
+                                                                        '2014',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1179,24 +1945,38 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
             ),
             
             html.Div(
-                id="data8",
                 children=[
-                    html.H5("Unplanned Visits", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("This data set includes hospital-level data for the hospital return days (or excess days in acute care [EDAC]) measures, the unplanned readmissions measures, and measures of unplanned hospital visits after outpatient procedures. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/632h-zaca) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Unplanned Visits", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px'},
+                            ),
+                    dcc.Markdown("This data set includes hospital-level data for the hospital " +
+                                 "return days (or excess days in acute care [EDAC]) measures, " +
+                                 "the unplanned readmissions measures, and measures of unplanned " +
+                                 "hospital visits after outpatient procedures. The data provided " +
+                                 "here are curated and compiled versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/632h-zaca)" +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'},
+                                 ),
                     dcc.Dropdown(
                             id='unplanned_visits-year',
-                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
-                                                                        '2019', '2018']],
-                            multi=False, value=None,
+                            options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', 
+                                                                        '2020', '2019', '2018']
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1209,11 +1989,12 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%'}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
             ),
             
             html.Br(),
@@ -1221,17 +2002,29 @@ def control_card5():
             html.Br(),
             
             html.Div(
-                id="data9",
                 children=[
-                    html.H5("Outpatient Imaging Efficiency", style={'display': 'inline-block', 'margin-right': '10px'},),
-                    dcc.Markdown("These measures give you information about hospitals' use of medical imaging tests for outpatients. Examples of medical imaging tests include CT scans and MRIs. The data provided here are curated and compiled versions of [data] (https://data.cms.gov/provider-data/dataset/632h-zaca) offered by the Centers for Medicare and Medicaid Services.",
-                                 style={'width': '94.1%'}),
+                    html.H5("Outpatient Imaging Efficiency", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                    dcc.Markdown("These measures give you information about hospitals' use of " +
+                                 "medical imaging tests for outpatients. Examples of medical " + 
+                                 "imaging tests include CT scans and MRIs. The data provided " +
+                                 "here are curated and compiled versions of " +
+                                 "[data](https://data.cms.gov/provider-data/dataset/632h-zaca) " +
+                                 "offered by the Centers for Medicare and Medicaid Services.",
+                                 style={'width': '94.1%'},
+                                 ),
                     dcc.Dropdown(
                             id='imaging-year',
                             options=[{"label": i, "value": i} for i in ['2023', '2022', '2021', '2020',
                                                                         '2019', '2018', '2017', '2016', 
-                                                                        '2015', '2014',]],
-                            multi=False, value=None,
+                                                                        '2015', '2014',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value=None,
                             placeholder='Choose a federal fiscal year',
                             style={'width': '96.2%',
                                    'margin-bottom': '10px',
@@ -1244,89 +2037,685 @@ def control_card5():
                                    'width': '92.5%',
                                    'font-size': 12,
                                    'display': 'inline-block',
-                                   'margin-right': '20px',
                                    },
                         ),
                 ],
-                style={'display': 'inline-block', 'width': '45%', 'margin-right': '40px',}
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
             ),
             
+            html.Div(
+                children=[
+                    html.H5("Patient Survival", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                    dcc.Markdown("This dataset is a stratified random sample containing 1/2 of " +
+                                 "the subjects from a study of the relationship between " +
+                                 "[serum free light chain (FLC)]" +
+                                 "(https://en.wikipedia.org/wiki/Serum_free_light-chain_measurement)" +
+                                 " and mortality. The original sample contains samples on " +
+                                 "approximately 2/3 of the residents of Olmsted County aged " +
+                                 "50 or greater. This dataset is also included by default into " +
+                                 "the python statsmodels library, which is how this application " +
+                                 "obtains it. A detailed descpription of the data can be found " +
+                                 "[here](https://rdrr.io/cran/survival/man/flchain.html).",
+                                 style={'width': '94.1%'},
+                                 ),
+                    
+                    dbc.Button("Load patient survival dataset",
+                               id='flchain',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
+                ),
             ],
         )
     
 
-def control_card1():
+def control_card_choose_reg2():
+    return html.Div(
+        children=[    
+            html.Div(
+                children=[
+                    html.H5("Iterative Multi-Model Regressions", 
+                            style={'display': 'inline-block', 
+                                   },
+                            ),
+                    dcc.Markdown("Save tons of time by automating the search for simple 1-to-1 " +
+                                 "relationships among variables with multiple models, OLS and " +
+                                 "Robust regression, and optimized data transformations.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run iterative multi-model analysis",
+                               id='open-iterative_ols',
+                               style={"background-color": "#2a8cff",
+                                      'width': '92.5%',
+                                      'font-size': 12,
+                                      'display': 'inline-block',
+                                      },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                id="left-column2",
+                                className="two columns",
+                                children=[control_card_iterative_multi_model_regression(),
+                                          generate_outputs_iterative_multi_model_regression(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'display': 'block',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                        },
+                                    ),                        
+                                ]),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-iterative_ols', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id="modal-iterative_ols",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
+            ),
+            
+            html.Div(
+                children=[
+                    html.H5("In-depth Bivariate Regression", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("Examine the relationship between 2 variables. Use OLS, Robust " +
+                                 "regression, data transformations, linear and polynomial " +
+                                 "models, and build confidence intervals, prediction intervals, " +
+                                 "and identify outliers.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run in-depth OLS regression",
+                               id='open-single_ols',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                id="left-column3",
+                                className="two columns",
+                                children=[control_card_single_regression(),
+                                          generate_figure_single_regression(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                },
+                            ),                    
+                            ]),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-single_ols', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id="modal-single_ols",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       }
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                children=[
+                    html.H5("Quantile regression", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("Extend linear regression to examine upper limits, lower " +
+                                 "limits, or any quantile of a response variable in relation to " +
+                                 "a predictor. Or, go even futher with polynomial quantile " +
+                                 "regression.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run quantile regression",
+                               id='open-quant_reg',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                id="left-column3_quant",
+                                className="two columns",
+                                children=[control_card_quantile_regression(),
+                                          generate_figure_quantile_regression(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                },
+                            ),           
+                            ],
+                            ),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-quant_reg', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id="modal-quant_reg",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
+            ),
+            
+            html.Div(
+                children=[
+                    html.H5("Multiple Linear Regression", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("Get insights into how 2 or more predictors collectively " +
+                                 "influence a response variable. Include automated, optimized " +
+                                 "data scaling and the removal of unimportant variables.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run multiple linear regression",
+                               id='open-multi_reg',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                id="left-column4",
+                                className="two columns",
+                                children=[control_card_multiple_regression(),
+                                          generate_multiple_regression_outputs(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'display': 'block',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                },
+                            ),
+                            ],
+                            ),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-multi_reg', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id="modal-multi_reg",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                children=[
+                    html.H5("Binary Classification", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("Use **logistic regression** and **probit regression** to " + 
+                                 "classify outcomes (e.g., readmission/non-readmission, " +
+                                 "positive/negative) based on one or more predictor variables. " +
+                                 "Leverage machine learning, automated optimized data scaling, " +
+                                 "and diagostic curves.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run logistic regression",
+                               id='open-logistic_reg',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                id="left-column5",
+                                className="two columns",
+                                children=[control_card_logistic(),
+                                          generate_logistic_a(),
+                                          generate_logistic_b(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'display': 'block',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                },
+                            ),
+                            ]),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-logistic_reg', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id="modal-logistic_reg",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
+            ),
+            
+            html.Div(
+                children=[
+                    html.H5("Generalized Linear Modeling (GLM)", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("GLMs reveal how 2 or more predictors influence a response " +
+                                 "variable. GLMs accommodate data distributions that simpler " +
+                                 "regression models don't. Our GLMs included **Poisson**, " +
+                                 "**Binomial**, **Negative Binomial**, **Gamma**, **Gaussian**, " +
+                                 "and other families of models.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run Generalized Linear Modeling",
+                               id='open-glm',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                id="left-column6",
+                                className="two columns",
+                                children=[control_card_glm(),
+                                          generate_glm_outputs(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'display': 'block',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                },
+                            ),
+                            ]),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-glm', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id="modal-glm",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
+            ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                children=[
+                    html.H5("Survival Regression", 
+                            style={'display': 'inline-block',
+                                   },
+                            ),
+                    dcc.Markdown("Survival regression is used in so-called survival " +
+                                 "analysis or 'time-to-event' analysis. It is used to model the " +
+                                 "time until an event of interest, " +
+                                 "considering the impact of covariates on the hazard rate, " +
+                                 "a measure of risk.",
+                                 style={'width': '94.1%',
+                                        },
+                                 ),
+                    dbc.Button("Run Survival Regression",
+                               id='cox_reg_btn',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal([
+                        dbc.ModalBody([
+                            html.Div(
+                                className="two columns",
+                                children=[control_card_cox_regression(),
+                                          generate_cox_outputs(),
+                                          ],
+                                style={'width': '95.3%',
+                                        'display': 'block',
+                                        'border-radius': '15px',
+                                        'box-shadow': '1px 1px 1px grey',
+                                        'background-color': '#f0f0f0',
+                                        'padding': '10px',
+                                        'margin-bottom': '10px',
+                                },
+                            ),
+                            ],
+                            ),
+                            dbc.ModalFooter(
+                                dbc.Button("Click to Close", 
+                                           id='close-cox', 
+                                           className="ml-auto",
+                                           style={
+                                               "background-color": "#2a8cff",
+                                               'width': '30%',
+                                               'font-size': 14,
+                                               },
+                                           ),
+                                style={
+                                    "background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",
+                                    "align-items": "center",
+                                    },
+                                ),
+                        ],
+                    id='modal-cox',
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    fullscreen=True,
+                    keyboard=True,
+                    fade=True,
+                    ),
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
+            ),
+            ],
+        )
+
+
+def control_card_iterative_multi_model_regression():
 
     return html.Div(
         id="control-card1",
         children=[
                 html.H5("Explore relationships between multiple features at once",
-                        style={'display': 'inline-block', 'width': '41.5%'},),
+                        style={'display': 'inline-block', 
+                               'width': '41.5%',
+                               },
+                        ),
+                
                 html.I(className="fas fa-question-circle fa-lg", id="target_select_vars",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("As a default, these analyses are based on ordinary least squares regression (OLS). These analyses exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars", style = {'font-size': 12},),
+                            style={'display': 'inline-block', 
+                                   'width': '3%', 
+                                   'color':'#99ccff',
+                                   },
+                            ),
+                
+                dbc.Tooltip("As a default, these analyses are based on ordinary least squares " +
+                            "regression (OLS). These analyses exclude categorical features, any" +
+                            "features suspected of being dates or times, and any numeric features" +
+                            "having less than 4 unique values.", 
+                            target="target_select_vars", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                
                 html.Hr(),
                 
-                html.B("Choose one or more x-variables. These are also known as predictors.",
+                html.B("Choose one or more x-variables.",
                     style={'display': 'inline-block',
                             'vertical-align': 'top',
-                            'margin-right': '10px',
-                       }),
+                       },
+                    ),
+                
                 dcc.Dropdown(
                         id='xvar',
                         options=[{"label": i, "value": i} for i in []],
-                        multi=True, value=None,
+                        multi=True, 
+                        value=None,
                         style={'width': '100%',
                              },
                         ),
                         
                 html.Br(),
-                html.B("Choose one or more y-variables. These are also known as response variables.",
+                
+                html.B("Choose one or more y-variables.",
                     style={'display': 'inline-block',
                            'vertical-align': 'top',
-                           'margin-right': '10px',
-                    }),
+                    },
+                ),
+                
                 dcc.Dropdown(
                         id='yvar',
                         options=[{"label": i, "value": i} for i in []],
-                        multi=True, value=None,
+                        multi=True, 
+                        value=None,
                         style={'width': '100%',
                              },
                         ),
+                
                 html.Hr(),
                 html.Br(),
+                
                 dbc.Button('Run regressions', 
-                            id='btn1', n_clicks=0,
+                            id='btn1', 
+                            n_clicks=0,
                             style={'width': '20%',
                                 'font-size': 12,
                                 "background-color": "#2a8cff",
                                 'display': 'inline-block',
-                                'margin-right': '20px',
-                    },
-                    ),
+                                'margin-right': '2%',
+                                },
+                ),
+                
                 dbc.Button("View results table",
-                           id="open-centered2",
-                           #color="dark",
-                           #className="mr-1",
+                           id="open-iterative_multimodel_ols_table1",
                            style={
-                               "background-color": "#2a8cff",
+                               'background-color': '#2a8cff',
                                'width': '16%',
-                                   'font-size': 12,
+                               'font-size': 12,
                                'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
+                               'margin-right': '2%',
                                },
                     ),
+                
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id='table_plot1'), html.Br(), html.P("", id='table1txt')]),
-                                    dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered2", className="ml-auto")
+                    [dbc.ModalBody([html.Div(id='table_plot1'), 
+                                    html.Br(), 
+                                    html.P("", id='table1txt'),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                         dbc.Button("Close", 
+                                    id="close-iterative_multimodel_ols_table1", 
+                                    className="ml-auto",
                                     ),
-                            ],
-                    id="modal-centered2",
+                         ),
+                    ],
+                    id="modal-iterative_multimodel_ols_table1",
                     is_open=False,
                     centered=True,
                     autoFocus=True,
@@ -1337,212 +2726,282 @@ def control_card1():
                     ),
                 
                 dbc.Button('Smart scale', 
-                            id='btn_ss', n_clicks=0,
+                            id='btn_ss', 
+                            n_clicks=0,
                             style={'width': '15%',
                                 'font-size': 12,
                                 "background-color": "#2a8cff",
                                 'display': 'inline-block',
-                                'margin-right': '10px',
-                    },
-                    ),
-                html.I(className="fas fa-question-circle fa-lg", id="ss1",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and apply the best scaling for each skewed variable. Smart scaling will not necessarily improve the r-square.  To remove the rescaling just click 'SMART SCALE' again.",
-                            target="ss1", style = {'font-size': 12,
-                                                   'display': 'inline-block',},),
+                                'margin-right': '2%',
+                                },
+                ),
                 
-                dbc.Button('Run robust', 
-                            id='btn_robust', n_clicks=0,
-                            style={'width': '15%',
-                                'font-size': 12,
-                                "background-color": "#2a8cff",
-                                'display': 'inline-block',
-                                'margin-right': '10px',
-                    },
-                    ),
-                html.I(className="fas fa-question-circle fa-lg", id="robust1",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Outliers can weaken OLS regression. However, clicking on 'RUN ROBUST' will run a 'Robust Linear Model' via statsmodels. The r-square (for observed vs predicted) of a robust regression will likely be lower than the r-square of OLS regression. This is because the robust model is not chasing outliers. However, for non-outliers (the main trend), the robust model will be more accurate, stable, valid, and useful for predictions than an OLS model. To run regular OLS regression, simply click 'RUN ROBUST' again.",
-                            target="robust1", style = {'font-size': 12,
-                                                       'display': 'inline-block',},
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="ss1",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
                             ),
                 
-                html.P("", id='rt0'),
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart" +
+                            "Scale' and the app will automatically detect and apply the best " +
+                            "scaling for each skewed variable. Smart scaling will not necessarily" +
+                            "improve the r-square.  To remove the rescaling just click " +
+                            "'SMART SCALE' again.",
+                            target="ss1", 
+                            style = {'font-size': 12,
+                                     'display': 'inline-block',
+                                     },
+                            ),
+                
+                dbc.Button('Run robust', 
+                            id='btn_robust', 
+                            n_clicks=0,
+                            style={'width': '15%',
+                                'font-size': 12,
+                                "background-color": "#2a8cff",
+                                'display': 'inline-block',
+                                'margin-right': '2%',
+                                },
+                            ),
+                
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="robust1",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                
+                dbc.Tooltip("Outliers can weaken OLS regression. However, clicking on 'RUN ROBUST'" + 
+                            " will run a 'Robust Linear Model' via statsmodels. The r-square " +
+                            "(for observed vs predicted) of a robust regression will likely be " +
+                            "lower than the r-square of OLS regression. This is because the " +
+                            "robust model is not chasing outliers. However, for non-outliers " +
+                            "(the main trend), the robust model will be more accurate, stable, " +
+                            "valid, and useful for predictions than an OLS model. To run regular " + 
+                            "OLS regression, simply click 'RUN ROBUST' again.",
+                            target="robust1", 
+                            style = {'font-size': 12,
+                                     'display': 'inline-block',
+                                     },
+                            ),
+                
+                html.P("", 
+                       id='rt0',
+                       ),
                 ],
-                style={'margin-bottom': '0px',
-                       'margin': '10px',
+        
+                style={'margin-left': '1%',
                        'width': '98.5%',
                     },
             )
 
 
-def control_card2():
+def control_card_single_regression():
 
     return html.Div(
         id="control-card2",
         children=[
                 html.H5("Conduct a single regression for deeper insights",
-                        style={'display': 'inline-block', 'width': '35.4%'},),
-                html.I(className="fas fa-question-circle fa-lg", id="target_select_vars2",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("These analyses are based on ordinary least squares regression (OLS). They exclude categorical features, any features suspected of being dates or times, and any numeric features having less than 4 unique values.", target="target_select_vars2", style = {'font-size': 12},),
+                        style={'display': 'inline-block', 
+                               'width': '35.4%',
+                               'margin-right': '1%',
+                               },
+                        ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="target_select_vars2",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("These analyses are based on ordinary least squares regression (OLS)."+
+                            "They exclude categorical features, any features suspected of being " +
+                            "dates or times, and any numeric features having less than 4 unique " +
+                            "values.", 
+                            target="target_select_vars2", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
                 html.Hr(),
                 
                 html.Div(
-                id="control-card2a",
-                children=[
-                    html.B("Choose a predictor (x) variable",
-                        style={'display': 'inline-block',
-                                'vertical-align': 'top',
-                                'margin-right': '10px',
-                           }),
-                    dcc.Dropdown(
-                            id='xvar2',
-                            options=[{"label": i, "value": i} for i in []],
-                            multi=False,
-                            optionHeight=65,
-                            placeholder='Select a feature',
-                            style={'width': '100%',
-                                   'display': 'inline-block',
-                                 },
+                    id="control-card2a",
+                    children=[
+                        html.B("Choose a predictor (x) variable",
+                            style={'display': 'inline-block',
+                                    'vertical-align': 'top',
+                               },
                             ),
+                        dcc.Dropdown(
+                                id='xvar2',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False,
+                                optionHeight=65,
+                                placeholder='Select a feature',
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                            ],
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                                   'width': '20%',
+                                   'margin-right': '1%',
+                            },
+                    ),
+                
+                html.Div(
+                    id="control-card2b",
+                    children=[
+                        html.B("Choose a data transformation",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                            }),
+                        dcc.Dropdown(
+                                id='x_transform',
+                                options=[{"label": i, "value": i} for i in ['None', 'log10', 
+                                                                            'square root', 
+                                                                            'cube root',
+                                                                            'squared', 'cubed', 
+                                                                            'log-modulo', 
+                                                                            'log-shift']
+                                         ],
+                                multi=False, 
+                                value='None',
+                                style={'width': '90%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
                         ],
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '20px',
+                               'margin-right': '2%',
                                'width': '20%',
-                        }),
-                
-                html.Div(
-                id="control-card2b",
-                children=[
-                    html.B("Choose a data transformation",
-                        style={'display': 'inline-block',
-                               'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
-                    dcc.Dropdown(
-                            id='x_transform',
-                            options=[{"label": i, "value": i} for i in ['None', 'log10', 'square root', 'cube root',
-                                                                        'squared', 'cubed', 'log-modulo', 'log-shift']],
-                            multi=False, value='None',
-                            style={'width': '90%',
-                                   'display': 'inline-block',
-                                 },
-                            ),
-                    ],
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '20px',
-                           'width': '20%',
-                    }),
+                               },
+                        ),
                     
                 html.Div(
-                id="control-card2c",
-                children=[
-                    html.B("Choose a response (y) variable",
+                    id="control-card2c",
+                    children=[
+                        html.B("Choose a response (y) variable",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                            },
+                            ),
+                        dcc.Dropdown(
+                                id='yvar2',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False,
+                                optionHeight=65,
+                                placeholder='Select a feature',
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                        ],
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
-                    dcc.Dropdown(
-                            id='yvar2',
-                            options=[{"label": i, "value": i} for i in []],
-                            multi=False,
-                            optionHeight=65,
-                            placeholder='Select a feature',
-                            style={'width': '100%',
-                                   'display': 'inline-block',
-                                 },
-                            ),
-                    ],
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '20px',
-                           'width': '20%',
-                    }),
+                               'margin-right': '1%',
+                               'width': '20%',
+                        },
+                    ),
                 
                 html.Div(
-                id="control-card2d",
-                children=[
-                    html.B("Choose a data transformation",
+                    id="control-card2d",
+                    children=[
+                        html.B("Choose a data transformation",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                            },
+                            ),
+                        dcc.Dropdown(
+                                id='y_transform',
+                                options=[{"label": i, "value": i} for i in ['None', 'log10', 
+                                                                            'square root', 
+                                                                            'cube root',
+                                                                            'squared', 'cubed', 
+                                                                            'log-modulo', 
+                                                                            'log-shift']
+                                         ],
+                                multi=False, 
+                                value='None',
+                                style={'width': '90%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                        ],
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
-                    dcc.Dropdown(
-                            id='y_transform',
-                            options=[{"label": i, "value": i} for i in ['None', 'log10', 'square root', 'cube root',
-                                                                        'squared', 'cubed', 'log-modulo', 'log-shift']],
-                            multi=False, value='None',
-                            style={'width': '90%',
-                                   'display': 'inline-block',
-                                 },
-                            ),
-                    ],
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '20px',
-                           'width': '20%',
-                    }),
+                               'margin-right': '2%',
+                               'width': '20%',
+                        },
+                    ),
                     
                 html.Div(
-                id="control-card2e",
-                children=[
-                    html.B("Choose a model",
+                    id="control-card2e",
+                    children=[
+                        html.B("Choose a model",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                            },
+                            ),
+                        dcc.Dropdown(
+                                id='model2',
+                                options=[{"label": i, "value": i} for i in ['linear', 'quadratic', 
+                                                                            'cubic']
+                                         ],
+                                multi=False, 
+                                value='linear',
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                        ],
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
-                    dcc.Dropdown(
-                            id='model2',
-                            options=[{"label": i, "value": i} for i in ['linear', 'quadratic', 'cubic']],
-                            multi=False, value='linear',
-                            style={'width': '100%',
-                                   'display': 'inline-block',
-                                 },
-                            ),
-                    ],
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '20px',
-                           'width': '10%',
-                    }),
+                               'width': '10%',
+                        },
+                    ),
+                
                 html.Hr(),
                 html.Br(),
+                
                 dbc.Button('Run regression', 
                             id='btn2', n_clicks=0,
                             style={'width': '20%',
                                 'font-size': 12,
                                 "background-color": "#2a8cff",
                                 'display': 'inline-block',
-                                'margin-right': '20px',
+                                'margin-right': '1%',
                     },
                     ),
                 
                 dbc.Button("View residuals plot",
-                           id="open-centered",
-                           #color="dark",
-                           #className="mr-1",
+                           id="open-single_regression_residuals_plot",
                            style={
                                "background-color": "#2a8cff",
                                'width': '16%',
-                                   'font-size': 12,
+                               'font-size': 12,
                                'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
+                               'margin-right': '1%',
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([dcc.Graph(id="residuals_plot1"), html.Br(), html.P("", id='fig2txt')]),
-                                    dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered", className="ml-auto")
+                    [dbc.ModalBody([dcc.Graph(id="residuals_plot1"), 
+                                    html.Br(), 
+                                    html.P("", id='fig2txt'),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                               id="close-single_regression_residuals_plot", 
+                                               className="ml-auto")
                                     ),
                             ],
-                    id="modal-centered",
+                    id="modal-single_regression_residuals_plot",
                     is_open=False,
                     centered=True,
                     autoFocus=True,
@@ -1554,32 +3013,30 @@ def control_card2():
                 
                 dbc.Button("View results table",
                            id="open-centered_single",
-                           #color="dark",
-                           #className="mr-1",
                            style={
                                "background-color": "#2a8cff",
                                'width': '16%',
-                                   'font-size': 12,
+                               'font-size': 12,
                                'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
-                               #'margin-top': '21.5px',
+                               'margin-right': '1%',
                                },
                     ),
+                
                 dbc.Modal(
                     [dbc.ModalBody([html.H5("Results for single regression"),
                                     html.Div(id="single_table_1"), 
                                     html.Div(id="single_table_2"),
                                     html.Br(),
                                     html.P("", id="single_table_txt"),
-                                    ]),
-                                    dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered_single", className="ml-auto")
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                               id="close-centered_single", 
+                                               className="ml-auto")
                                     ),
                             ],
+                    
                     id="modal-centered_single",
                     is_open=False,
                     centered=True,
@@ -1591,24 +3048,40 @@ def control_card2():
                     ),
                 
                 dbc.Button('Run robust', 
-                            id='btn_robust2', n_clicks=0,
+                            id='btn_robust2', 
+                            n_clicks=0,
                             style={'width': '15%',
-                                'font-size': 12,
-                                "background-color": "#2a8cff",
-                                'display': 'inline-block',
-                                'margin-right': '10px',
-                    },
-                    ),
-                html.I(className="fas fa-question-circle fa-lg", id="robust2",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Outliers can weaken OLS regression. However, clicking on 'RUN ROBUST' will run a 'Robust Linear Model' via statsmodels. The r-square (for observed vs predicted) of a robust regression will likely be lower than the r-square of OLS regression. This is because the robust model is not chasing outliers. However, for non-outliers (the main trend), the robust model will be more accurate, stable, valid, and useful for predictions than an OLS model. To run regular OLS regression, simply click 'RUN REGRESSION' again.",
-                            target="robust2", style = {'font-size': 12,
-                                                       'display': 'inline-block',},),
+                                   'font-size': 12,
+                                   "background-color": "#2a8cff",
+                                   'display': 'inline-block',
+                                   'margin-right': '1%',
+                                   },
+                            ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="robust2",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("Outliers can weaken OLS regression. However, clicking on 'RUN " + 
+                            "ROBUST' will run a 'Robust Linear Model' via statsmodels. " +
+                            "The r-square (for observed vs predicted) of a robust regression " +
+                            "will likely be lower than the r-square of OLS regression. This " +
+                            "is because the robust model is not chasing outliers. However, " +
+                            "for non-outliers (the main trend), the robust model will be more " +
+                            "accurate, stable, valid, and useful for predictions than an OLS " +
+                            "model. To run regular OLS regression, simply click 'RUN REGRESSION' " +
+                            "again.",
+                            target="robust2", 
+                            style = {'font-size': 12,
+                                     'display': 'inline-block',
+                                     },
+                            ),
                 
                 html.P("", id='rt3')
                 ],
-                style={'margin-bottom': '0px',
-                       'margin': '10px',
+                style={'margin-left': '1%',
                        'width': '98.5%',
                     },
             )
@@ -1620,11 +3093,25 @@ def control_card_quantile_regression():
         id="control-card_quantile_regression",
         children=[
                 html.H5("Conduct linear and polynomial quantile regression",
-                        style={'display': 'inline-block', 'width': '505px'},),
-                html.I(className="fas fa-question-circle fa-lg", id="target_select_vars2_quant",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Data too noisy or too oddly distributed for ordinary least squares regression? Quantile regression makes no assumptions about the distribution of data and allows you to explore boundaries on the relationships between features.", 
-                            target="target_select_vars2_quant", style = {'font-size': 12},),
+                        style={'display': 'inline-block', 
+                               'margin-right': '1%',
+                               },
+                        ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="target_select_vars2_quant",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("Data too noisy or too oddly distributed for ordinary least squares " +
+                            "regression? Quantile regression makes no assumptions about the " +
+                            "distribution of data and allows you to explore boundaries on the " +
+                            "relationships between features.", 
+                            target="target_select_vars2_quant", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
                 html.Hr(),
                 
                 html.Div(
@@ -1633,8 +3120,8 @@ def control_card_quantile_regression():
                     html.B("Choose a predictor (x) variable",
                         style={'display': 'inline-block',
                                 'vertical-align': 'top',
-                                'margin-right': '10px',
-                           }),
+                           },
+                        ),
                     dcc.Dropdown(
                             id='xvar2_quant',
                             options=[{"label": i, "value": i} for i in []],
@@ -1648,7 +3135,7 @@ def control_card_quantile_regression():
                         ],
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '20px',
+                               'margin-right': '1%',
                                'width': '20%',
                         }),
                 
@@ -1658,13 +3145,17 @@ def control_card_quantile_regression():
                     html.B("Choose a data transformation",
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '10px',
                         }),
                     dcc.Dropdown(
                             id='x_transform_quant',
-                            options=[{"label": i, "value": i} for i in ['None', 'log10', 'square root', 'cube root',
-                                                                        'squared', 'cubed', 'log-modulo', 'log-shift']],
-                            multi=False, value='None',
+                            options=[{"label": i, "value": i} for i in ['None', 'log10', 
+                                                                        'square root', 'cube root',
+                                                                        'squared', 'cubed', 
+                                                                        'log-modulo', 'log-shift',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value='None',
                             style={'width': '90%',
                                    'display': 'inline-block',
                                  },
@@ -1672,7 +3163,7 @@ def control_card_quantile_regression():
                     ],
                     style={'display': 'inline-block',
                            'vertical-align': 'top',
-                           'margin-right': '20px',
+                           'margin-right': '2%',
                            'width': '20%',
                     }),
                     
@@ -1682,8 +3173,8 @@ def control_card_quantile_regression():
                     html.B("Choose a response (y) variable",
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
+                        },
+                        ),
                     dcc.Dropdown(
                             id='yvar2_quant',
                             options=[{"label": i, "value": i} for i in []],
@@ -1697,7 +3188,7 @@ def control_card_quantile_regression():
                     ],
                     style={'display': 'inline-block',
                            'vertical-align': 'top',
-                           'margin-right': '20px',
+                           'margin-right': '1%',
                            'width': '20%',
                     }),
                 
@@ -1707,13 +3198,17 @@ def control_card_quantile_regression():
                     html.B("Choose a data transformation",
                         style={'display': 'inline-block',
                                'vertical-align': 'top',
-                               'margin-right': '10px',
                         }),
                     dcc.Dropdown(
                             id='y_transform_quant',
-                            options=[{"label": i, "value": i} for i in ['None', 'log10', 'square root', 'cube root',
-                                                                        'squared', 'cubed', 'log-modulo', 'log-shift']],
-                            multi=False, value='None',
+                            options=[{"label": i, "value": i} for i in ['None', 'log10', 
+                                                                        'square root', 'cube root',
+                                                                        'squared', 'cubed', 
+                                                                        'log-modulo', 'log-shift',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value='None',
                             style={'width': '90%',
                                    'display': 'inline-block',
                                  },
@@ -1721,82 +3216,87 @@ def control_card_quantile_regression():
                     ],
                     style={'display': 'inline-block',
                            'vertical-align': 'top',
-                           'margin-right': '20px',
+                           'margin-right': '2%',
                            'width': '20%',
-                    }),
-                
-                html.Hr(),
-                html.Div(
-                id="control-card2e_quant_quantiles",
-                children=[
-                    html.B("Choose lower and upper quantiles",
-                        style={'display': 'inline-block',
-                               'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
-                    dcc.RangeSlider(
-                        id='quantiles',
-                        min=1, max=99, value=[5, 95], allowCross=False, 
-                                    tooltip={"placement": "bottom", "always_visible": True},
-                                    ),
-                    ],
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '20px',
-                           'width': '20%',
-                    }),
-                
-                
-                html.Div(
-                id="control-card2e_quant",
-                children=[
-                    html.B("Choose a model",
-                        style={'display': 'inline-block',
-                               'vertical-align': 'top',
-                               'margin-right': '10px',
-                        }),
-                    dcc.Dropdown(
-                            id='model2_quant',
-                            options=[{"label": i, "value": i} for i in ['linear', 'quadratic', 'cubic']],
-                            multi=False, value='linear',
-                            style={'width': '90%',
-                                   'display': 'inline-block',
-                                 },
-                            ),
-                    ],
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '20px',
-                           'width': '20%',
-                    }),
-                
-                
-                dbc.Button('Run regression', 
-                            id='btn2_quant', n_clicks=0,
-                            style={'width': '20%',
-                                'font-size': 12,
-                                "background-color": "#2a8cff",
-                                'display': 'inline-block',
-                                'margin-right': '20px',
-                                'margin-top': '21.5px',
                     },
                     ),
                 
+                html.Hr(),
+                html.Div(
+                    id="control-card2e_quant_quantiles",
+                    children=[
+                        html.B("Choose lower and upper quantiles",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                            },
+                            ),
+                        dcc.RangeSlider(
+                            id='quantiles',
+                            min=1, 
+                            max=99, 
+                            value=[5, 95], 
+                            allowCross=False, 
+                            tooltip={"placement": "bottom", 
+                                     "always_visible": True},
+                            ),
+                        ],
+                        style={'display': 'inline-block',
+                               'vertical-align': 'top',
+                               'margin-right': '1%',
+                               'width': '20%',
+                        },
+                    ),
+                
+                html.Div(
+                    id="control-card2e_quant",
+                    children=[
+                        html.B("Choose a model",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                            },
+                        ),
+                        dcc.Dropdown(
+                                id='model2_quant',
+                                options=[{"label": i, "value": i} for i in ['linear', 
+                                                                            'quadratic', 
+                                                                            'cubic',
+                                                                            ]
+                                         ],
+                                multi=False, 
+                                value='linear',
+                                style={'width': '90%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                        ],
+                        style={'display': 'inline-block',
+                               'vertical-align': 'top',
+                               'margin-right': '2%',
+                               'width': '20%',
+                        },
+                    ),
+                
+                
+                dbc.Button('Run regression', 
+                            id='btn2_quant', 
+                            n_clicks=0,
+                            style={'width': '20%',
+                                   'font-size': 12,
+                                   "background-color": "#2a8cff",
+                                   'display': 'inline-block',
+                                   'margin-right': '1%',
+                                   'margin-top': '1.7%',
+                                   },
+                            ),
+                
                 dbc.Button("View results table",
-                           id="open-centered_quant",
-                           #color="dark",
-                           #className="mr-1",
+                           id="open-quant_regression_table",
                            style={
                                "background-color": "#2a8cff",
                                'width': '16%',
-                                   'font-size': 12,
+                               'font-size': 12,
                                'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               #'margin-right': '10px',
-                               #'margin-left': '11px',
-                               'margin-top': '21.5px',
+                               'margin-top': '1.7%',
                                },
                     ),
                 dbc.Modal(
@@ -1805,7 +3305,8 @@ def control_card_quantile_regression():
                                     html.Div(id="quant_table_2"),
                                     html.Br(),
                                     
-                                    html.H5("Results for 50th quantile (aka Least Absolute Deviation Model):"),
+                                    html.H5("Results for 50th quantile (aka Least Absolute " +
+                                            "Deviation Model):"),
                                     html.Div(id="quant_table_3"), 
                                     html.Div(id="quant_table_4"),
                                     html.Br(),
@@ -1817,10 +3318,12 @@ def control_card_quantile_regression():
                                     html.P("", id="quant_table_txt"),
                                     ]),
                                     dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered_quant", className="ml-auto")
+                                    dbc.Button("Close", 
+                                               id="close-quant_regression_table", 
+                                               className="ml-auto")
                                     ),
                             ],
-                    id="modal-centered_quant",
+                    id="modal-quant_regression_table",
                     is_open=False,
                     centered=True,
                     autoFocus=True,
@@ -1832,59 +3335,91 @@ def control_card_quantile_regression():
                 
                 html.P("", id='rt3_quant')
                 ],
-                style={'margin-bottom': '0px',
-                       'margin': '10px',
-                       'width': '98.5%',
+                style={'width': '98.5%',
+                       'margin-left': '1%',
                     },
             )
 
 
-def control_card3():
+def control_card_multiple_regression():
 
     return html.Div(
-        id="control-card3",
         children=[
                 html.H5("Conduct multiple linear regression",
-                        style={'display': 'inline-block', 'width': '26.3%'},),
-                html.I(className="fas fa-question-circle fa-lg", id="target_select_vars3",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("This analysis is based on ordinary least squares regression and reveals predicted values, outliers, and the significance of individual variables.", target="target_select_vars3", style = {'font-size': 12},),
-                html.P("When trying to explain or predict a non-categorical response variable using two or more predictors."),
-                html.Hr(),
+                        style={'display': 'inline-block', 
+                               'margin-right': '1%',
+                               },
+                        ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="target_select_vars3",
+                       style={'display': 'inline-block', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("This analysis is based on ordinary least squares regression and " +
+                            "reveals predicted values, outliers, and the significance of " +
+                            "individual variables.", 
+                            target="target_select_vars3", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                html.P("When trying to explain or predict a non-categorical response variable " +
+                       "using two or more predictors."),
+                
                 
                 html.B("Choose 2 or more predictors",
                     style={'vertical-align': 'top',
-                           'margin-right': '10px',
-                           'display': 'inline-block', 'width': '210px'
-                       }),
-                html.I(className="fas fa-question-circle fa-lg", id="target_mlrx1",
-                    style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
-                dbc.Tooltip("The app will recognize if your response variable occurs in this list of predictors. If it does, the app will ignore it.",
-                    target="target_mlrx1", style = {'font-size': 12},),
+                           'display': 'inline-block',
+                           'margin-right': '1%',
+                       },
+                    ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="target_mlrx1",
+                       style={'display': 'inline-block', 
+                           'color':'#bfbfbf',
+                           },
+                       ),
+                dbc.Tooltip("The app will recognize if your response variable occurs in this " +
+                            "list of predictors. If it does, the app will ignore it.",
+                    target="target_mlrx1", 
+                    style = {'font-size': 12,
+                             },
+                    ),
                 
                 dcc.Dropdown(
                         id='xvar3',
                         options=[{"label": i, "value": i} for i in []],
-                        multi=True, value=None,
-                        style={'width': '100%',
-                             },
+                        multi=True, 
+                        value=None,
                         ),
+                
                 html.Br(),
                 
-                html.Div(id='choosey',
+                html.Div(
                     children = [
                         html.B("Choose your response variable",
                             style={'vertical-align': 'top',
-                                   'margin-right': '10px',
-                                   'display': 'inline-block', 'width': '230px'}),
-                        html.I(className="fas fa-question-circle fa-lg", id="target_y1",
-                            style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
-                        dbc.Tooltip("Does not include categorical features or any numerical feature with less than 4 unique values.",
-                            target="target_y1", style = {'font-size': 12},),
+                                   'display': 'inline-block', 
+                                   'margin-right': '4%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="target_y1",
+                               style={'display': 'inline-block', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        dbc.Tooltip("Does not include categorical features or any numerical " +
+                                    "feature with less than 4 unique values.",
+                            target="target_y1", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
                         dcc.Dropdown(
                                 id='yvar3',
                                 options=[{"label": i, "value": i} for i in []],
-                                multi=False, value=None,
+                                multi=False, 
+                                value=None,
                                 optionHeight=65,
                                 style={'width': '100%',
                                        'display': 'inline-block',
@@ -1896,58 +3431,77 @@ def control_card3():
                               'margin-right': '5%',
                             },
                         ),
+                
                 html.Div(id='choose_ref',
                     children = [
                         html.B("Remove unimportant variables",
-                            style={'display': 'inline-block', 'width': '59.%'},),
-                        html.I(className="fas fa-question-circle fa-lg", id="target_rfe",
-                                    style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
-                        dbc.Tooltip("Remove variables that have little-to-no effect on model performance. Removal is done using recursive feature elimination with 5-fold cross-validation. Unimportant features will not be removed if the resulting number of variables is less 2.", target="target_rfe", style = {'font-size': 12},),
+                            style={'display': 'inline-block', 
+                                   'margin-right': '2%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="target_rfe",
+                               style={'display': 'inline-block', 
+                                      'width': '5%', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        dbc.Tooltip("Remove variables that have little-to-no effect on model " +
+                                    "performance. Removal is done using recursive feature " +
+                                    "elimination with 5-fold cross-validation. Unimportant " +
+                                    "features will not be removed if the resulting number of " +
+                                    "variables is less 2.", 
+                                    target="target_rfe", 
+                                    style = {'font-size': 12,
+                                             },
+                                    ),
                         dcc.Dropdown(
                             id='rfecv',
                             options=[{"label": i, "value": i} for i in ['Yes', 'No']],
-                            multi=False, value='Yes',
-                            style={'width': '50%', 'display': 'inline-block',
-                             },
+                            multi=False, 
+                            value='Yes',
+                            style={'width': '50%', 
+                                   'display': 'inline-block',
+                                   },
                             ),
                         ],
                         style={'width': '30%',
-                        'display': 'inline-block',
+                               'display': 'inline-block',
                         },
                     ),
                         
-                html.Hr(),
                 html.Br(),
-                dbc.Button('Run multiple regression', id='btn3', n_clicks=0,
-                    style={#'width': '100%',
-                            'display': 'inline-block',
-                            'width': '18%',
-                            'font-size': 12,
-                            'margin-right': '20px',
-                            "background-color": "#2a8cff",
-                    },
+                html.Br(),
+                
+                dbc.Button('Run multiple regression', 
+                           id='btn3', 
+                           n_clicks=0,
+                    style={'display': 'inline-block',
+                           'width': '18%',
+                           'font-size': 12,
+                           'margin-right': '2%',
+                           "background-color": "#2a8cff",
+                           },
                     ),
                 
                 dbc.Button("View parameters table",
                            id="open-centered3",
-                           #color="dark",
-                           #className="mr-1",
                            style={
                                "background-color": "#2a8cff",
                                'width': '18%',
                                'font-size': 12,
                                'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
+                               'margin-right': '2%',
                                },
-                    ),
+                           ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot3b"), html.Br(), html.P("", id='tab3btxt')]),
+                    [dbc.ModalBody([html.Div(id="table_plot3b"), 
+                                    html.Br(), 
+                                    html.P("", id='tab3btxt')]),
                                     dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered3", className="ml-auto")
+                                    dbc.Button("Close", 
+                                               id="close-centered3", 
+                                               className="ml-auto")
                                     ),
                             ],
                     id="modal-centered3",
@@ -1962,24 +3516,25 @@ def control_card3():
                 
                 dbc.Button("View model performance",
                            id="open-centered4",
-                           #color="dark",
-                           #className="mr-1",
                            style={
                                "background-color": "#2a8cff",
                                'width': '18%',
                                'font-size': 12,
                                'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
+                               'margin-right': '2%',
                                },
                     ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot3a"), html.Br(), html.P("Adjusted R-square accounts for sample size and the number of predictors used.")]),
-                                    dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered4", className="ml-auto")
+                    [dbc.ModalBody([html.Div(id="table_plot3a"), 
+                                    html.Br(), 
+                                    html.P("Adjusted R-square accounts for sample size and the " +
+                                           "number of predictors used."),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                    id="close-centered4", 
+                                    className="ml-auto")
                                     ),
                             ],
                     id="modal-centered4",
@@ -1993,121 +3548,569 @@ def control_card3():
                     ),
                 
                 dbc.Button('Smart scale', 
-                            id='btn_ss2', n_clicks=0,
-                            style={'width': '20%',
+                            id='btn_ss2', 
+                            n_clicks=0,
+                            style={
                                 'font-size': 12,
-                                "background-color": "#2a8cff",
+                                'background-color': '#2a8cff',
                                 'display': 'inline-block',
-                                'margin-right': '10px',
-                    },
-                    ),
-                html.I(className="fas fa-question-circle fa-lg", id="ss2",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and apply the best scaling for each skewed variable. Smart scaling will not necessarily improve the r-square. To remove the rescaling just click 'Run Multiple Regression'.", 
-                            target="ss2", style = {'font-size': 12},),
+                                'width': '15%',
+                                'margin-right': '1%',
+                                },
+                            ),
                 
-                #html.Button('Download results', id='btn3b', n_clicks=0,
-                #    style={#'width': '100%',
-                #            'display': 'inline-block',
-                #            #'margin-right': '10px',
-                #    },
-                #    ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="ss2",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on " +
+                            "'Smart Scale' and the app will automatically detect and apply the " +
+                            "best scaling for each skewed variable. Smart scaling will not " +
+                            "necessarily improve the r-square. To remove the rescaling just " +
+                            "click 'Run Multiple Regression'.", 
+                            target="ss2", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                
                 html.P("", id = 'rt1'),
                 ],
-                style={'margin-bottom': '0px',
-                       'margin': '10px',
-                       'width': '98.5%',
+                style={'width': '98.5%',
+                       'margin-left': '1%',
                     },
             )
     
 
-def control_card4():
+def control_card_cox_regression():
+
+    return html.Div(
+        children=[
+                html.H5("Conduct Cox Proportional-Hazards Regression",
+                        style={'display': 'inline-block', 
+                               'margin-right': '1%',
+                               },
+                        ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="tt_cox1",
+                       style={'display': 'inline-block', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("This analysis is based on ordinary least squares regression and " +
+                            "reveals predicted values, outliers, and the significance of " +
+                            "individual variables.", 
+                            target="tt_cox1", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                html.P("When trying to understand how different factors influence the time " +
+                       "until an event occurs."),
+                
+                html.Br(),
+                
+                html.B("Choose 2 or more covariates",
+                    style={'vertical-align': 'top',
+                           'margin-right': '10px',
+                           'display': 'inline-block', 
+                           'margin-right': '1%',
+                       },
+                    ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="tt_cox2",
+                       style={'display': 'inline-block', 
+                              'color':'#bfbfbf',
+                              },
+                       ),
+                dbc.Tooltip("These are the variables that potentially influence your event " +
+                            "variable (e.g., age and health-related variables influence the " +
+                            "chance of death). The app will recognize if your event variable " +
+                            "occurs in the list of covariates. If it does, the app will ignore it.",
+                    target="tt_cox2", 
+                    style = {'font-size': 12,
+                             },
+                    ),
+                
+                dcc.Dropdown(
+                        id='cox_predictors',
+                        options=[{"label": i, "value": i} for i in []],
+                        multi=True, 
+                        value=None,
+                        style={'width': '100%',
+                             },
+                        ),
+                
+                html.Br(),
+                
+                html.Div(
+                    children = [
+                        html.B("Choose an event variable",
+                            style={'vertical-align': 'top',
+                                   'display': 'inline-block',
+                                   'margin-right': '2%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_cox3e",
+                            style={'display': 'inline-block', 
+                                   'color':'#bfbfbf'},
+                            ),
+                        dbc.Tooltip("This would be a binary variable with 1's indicating an " +
+                                    "event (e.g., death, stroke, readmission) had happened and " +
+                                    "0's indicating the event had not happened.",
+                            target="tt_cox3e", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                        dcc.Dropdown(
+                                id='cox_e_var',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False, 
+                                value=None,
+                                optionHeight=30,
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                            ],
+                            style={'width': '30%',
+                              'display': 'inline-block',
+                              'margin-right': '5%',
+                            },
+                        ),
+                
+                html.Div(
+                    children = [
+                        html.B("Choose a duration variable",
+                            style={'vertical-align': 'top',
+                                   'display': 'inline-block', 
+                                   'margin-right': '2%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_cox3d",
+                            style={'display': 'inline-block', 
+                                   'color':'#bfbfbf',
+                                   },
+                            ),
+                        dbc.Tooltip("This variable would a measure of time during which the " +
+                                    "event of interest could happen.",
+                            target="tt_cox3d", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                        dcc.Dropdown(
+                                id='cox_d_var',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False, 
+                                value=None,
+                                optionHeight=30,
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                            ],
+                            style={'width': '30%',
+                                   'display': 'inline-block',
+                                   'margin-right': '5%',
+                            },
+                        ),
+                
+                html.Div(
+                    children = [
+                        html.B("Examine partial effects of",
+                            style={'vertical-align': 'top',
+                                   'margin-right': '2%',
+                                   'display': 'inline-block', 
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_cox3",
+                            style={'display': 'inline-block', 
+                                   'color':'#bfbfbf'},
+                            ),
+                        dbc.Tooltip("Choose one of your covariates to examine its effect on " +
+                                    "the survival function.",
+                            target="tt_cox3", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                        dcc.Dropdown(
+                                id='cox_partial',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False, 
+                                value=None,
+                                optionHeight=30,
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                            ],
+                            style={'width': '30%',
+                                   'display': 'inline-block',
+                                   'margin-right': '5%',
+                            },
+                        ),
+                
+                html.Div(
+                    children = [
+                        html.B("Reduce multicollinearity",
+                            style={'vertical-align': 'top',
+                                   'display': 'inline-block', 
+                                   'margin-right': '2%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_cox4",
+                                    style={'display': 'inline-block', 
+                                           'color':'#bfbfbf',
+                                           },
+                                    ),
+                        dbc.Tooltip("Predictors that are highly correlated with each other can " +
+                                    "obscure each other's effect, significance, and cause " +
+                                    "survival regression to fail. This 'multicollinearity' " +
+                                    "can be dealt with by iteratively removing the predictors " +
+                                    "that contribute most to multicollinearity.", 
+                                    target="tt_cox4", 
+                                    style = {'font-size': 12,
+                                             },
+                                    ),
+                        dcc.Dropdown(
+                            id='cox_multicollinear',
+                            options=[{"label": i, "value": i} for i in ['Yes', 'No']],
+                            multi=False, 
+                            value='Yes',
+                            style={'width': '100%', 
+                                   'display': 'inline-block',
+                             },
+                            ),
+                        ],
+                        style={'width': '30%',
+                               'display': 'inline-block',
+                        },
+                    ),
+                        
+                html.Br(),
+                html.Br(),
+                
+                dbc.Button('Run Cox regression', 
+                           id='btn_cox', 
+                           n_clicks=0,
+                           style={'display': 'inline-block',
+                                  'width': '18%',
+                                  'font-size': 12,
+                                  'margin-right': '20px',
+                                  "background-color": "#2a8cff",
+                                  },
+                           ),
+                
+                dbc.Button("View parameters table",
+                           id='open-cox_params_table',
+                           style={
+                               "background-color": "#2a8cff",
+                               'width': '18%',
+                               'font-size': 12,
+                               'display': 'inline-block',
+                               'margin-right': '20px',
+                               },
+                    ),
+                dbc.Modal(
+                    [dbc.ModalBody([html.Div(id='cox_params_table'), 
+                                    html.Br(), 
+                                    html.P("", id='cox_params_table_txt'),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                               id='close-cox_params_table', 
+                                               className="ml-auto")
+                                    ),
+                            ],
+                    id='modal-cox_params_table',
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    size="xl",
+                    keyboard=True,
+                    fade=True,
+                    backdrop=True,
+                    ),
+                
+                dbc.Button("View model performance",
+                           id='open-cox_performance_table',
+                           style={
+                               "background-color": "#2a8cff",
+                               'width': '18%',
+                               'font-size': 12,
+                               'display': 'inline-block',
+                               'margin-right': '20px',
+                               },
+                    ),
+                dbc.Modal(
+                    [dbc.ModalBody([html.Div(id='cox_performance_table'), 
+                                    html.Br(), 
+                                    html.P("Adjusted R-square accounts for sample size and the " +
+                                           "number of predictors used."),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(dbc.Button("Close", 
+                                                id='close-cox_performance_table', 
+                                                className="ml-auto"),
+                                    ),
+                            ],
+                    id='modal-cox_performance_table',
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    size="xl",
+                    keyboard=True,
+                    fade=True,
+                    backdrop=True,
+                    ),
+                dbc.Button('Smart scale', 
+                            id='btn_ss_cox', 
+                            n_clicks=0,
+                            style={'width': '20%',
+                                   'font-size': 12,
+                                   "background-color": "#2a8cff",
+                                   'display': 'inline-block',
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="ss_cox",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on " +
+                            "'Smart Scale' and the app will automatically detect and apply the " +
+                            "best scaling for each skewed variable. Smart scaling will not " +
+                            "necessarily improve the r-square. To remove the rescaling just " +
+                            "click 'Run Multiple Regression'.", 
+                            target="ss_cox", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                
+                html.P("", id = 'rt_cox'),
+                ],
+
+        style={'width': '98.5%',
+               'margin-left': '1%',
+               },
+        )
+
+
+def control_card_logistic():
 
     return html.Div(
         id="control-card4",
         children=[
-                html.H5("Conduct logistic regression",
-                        style={'display': 'inline-block', 'width': '27.5%'},),
-                #html.I(className="fas fa-question-circle fa-lg", id="target_SLR_vars",
-                #            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                #dbc.Tooltip("In statistics, multiple logistic regression is used to find explanatory relationships and to understand the significance of variables. In machine learning, it is used to obtain predictions. This app does both.", target="target_SLR_vars", style = {'font-size': 12},),
+                html.H5("Conduct Binary Logistic and Probit Regression",
+                        style={'display': 'inline-block', 
+                               'margin-right': '1%',
+                               },
+                        ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="BinClass",
+                       style={'display': 'inline-block', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("In statistics, multiple logistic regression is used to find " +
+                            "explanatory relationships and to understand the significance of " +
+                            "variables. In machine learning, it is used to obtain predictions. " +
+                            "This app does both.", 
+                            target="BinClass", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                
                 html.Br(),
-                html.P("When trying to explain, predict, or classify a binary variable (1/0, yes/no) using one or more other variables as predictors",
-                       style={'display': 'inline-block', 'width': '61.5%'},),
-                html.I(className="fas fa-question-circle fa-lg", id="target_SLR_vars2",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#bfbfbf'},),
-                dbc.Tooltip("This app takes several efficiency steps when conducting multiple logistic regression, i.e., when using >1 predictor variable. First, predictors that are 95% zeros will be removed from analysis. Highly multicollinear predictors are also removed during analysis, as are predictors that are perfect correlates of the response variable and any predictor variable that only has one value. If the number of resulting features is greater than 100, the app will use cross-validated recursive feature elimination to remove statistically unimportant variables.", target="target_SLR_vars2", style = {'font-size': 12},),
                 
-                html.Hr(),
+                html.P("When trying to explain, predict, or classify a binary variable " +
+                       "(1/0, yes/no) using one or more other variables as predictors",
+                       style={'display': 'inline-block', 
+                              'width': '62%',
+                              },
+                       ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="target_SLR_vars2",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#bfbfbf',
+                              },
+                       ),
+                dbc.Tooltip("This app takes several efficiency steps when conducting multiple " +
+                            "logistic regression, i.e., when using >1 predictor variable. " + 
+                            "First, predictors that are 95% zeros will be removed from " +
+                            "analysis. Highly multicollinear predictors are also removed " +
+                            "during analysis, as are predictors that are perfect correlates " +
+                            "of the response variable and any predictor variable that only has " +
+                            "one value. If the number of resulting features is greater than " +
+                            "100, the app will use cross-validated recursive feature elimination " +
+                            "to remove statistically unimportant variables.", 
+                            target="target_SLR_vars2", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
                 
-                html.B("Choose two or more predictors",
+                html.Br(),
+                
+                html.B("Choose one or more predictors",
                     style={'display': 'inline-block',
                             'vertical-align': 'top',
-                            'margin-right': '10px',
-                            'width': '17%',
-                       }),
-                html.I(className="fas fa-question-circle fa-lg", id="target_select_x",
-                            style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
-                dbc.Tooltip("Any that contain your response variable will be removed from analysis. Example: If one of your predictors is 'sex' and your response variable is 'sex:male', then 'sex' will be removed from your predictors during regression.", target="target_select_x", style = {'font-size': 12},),
+                            'margin-right': '1%',
+                       },
+                    ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="target_select_x",
+                       style={'display': 'inline-block', 
+                              'color':'#bfbfbf',
+                              },
+                       ),
+                dbc.Tooltip("Any that contain your response variable will be removed from " +
+                            "analysis. Example: If one of your predictors is 'sex' and your " +
+                            "response variable is 'sex:male', then 'sex' will be removed from " +
+                            "your predictors during regression.", 
+                            target="target_select_x", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                
                 dcc.Dropdown(
                         id='xvar_logistic',
                         options=[{"label": i, "value": i} for i in []],
-                        multi=True, value=None,
+                        multi=True, 
+                        value=None,
                         style={'width': '100%',
                              },
                         ),
-                        
-                html.Br(),
-                html.B("Choose your response variable",
-                    style={'display': 'inline-block',
-                           'vertical-align': 'top',
-                           'margin-right': '10px',
-                    }),
-                html.I(className="fas fa-question-circle fa-lg", id="target_select_y",
-                            style={'display': 'inline-block', 'width': '5%', 'color':'#bfbfbf'},),
-                dbc.Tooltip("This is your 'target', the thing you want to predict.", 
-                            target="target_select_y", style = {'font-size': 12},),
                 
-                dcc.Dropdown(
-                        id='yvar_logistic',
-                        options=[{"label": i, "value": i} for i in []],
-                        multi=False, value=None,
-                        optionHeight=65,
-                        style={'width': '50%',
+                html.Br(),
+                
+                html.Div(
+                    children = [
+                        html.B("Choose a response variable",
+                            style={'display': 'inline-block',
+                                   'vertical-align': 'top',
+                                   'margin-right': '2%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="target_select_y",
+                               style={'display': 'inline-block', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        dbc.Tooltip("This is your 'target', the thing you want to predict.", 
+                                    target="target_select_y", 
+                                    style = {'font-size': 12,
+                                             },
+                                    ),
+                        
+                        dcc.Dropdown(
+                                id='yvar_logistic',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False, 
+                                value=None,
+                                optionHeight=65,
+                                style={'width': '100%',
+                                     },
+                                ),
+                        ],
+                    style={'width': '30%',
+                           'display': 'inline-block',
+                           'margin-right': '3%',
+                           },
+                ),
+                    
+                html.Div(
+                    children=[
+                        html.B("Choose a model",
+                            style={'display': 'inline-block', 
+                                   'margin-right': '4%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_bc1",
+                               style={'display': 'inline-block', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        
+                        dbc.Tooltip(
+                            html.Div([
+                                html.P("• Logistic: ..."),
+                                html.P("• Probit: ..."),
+                                ], 
+                                style = {'font-size': 14, 
+                                         'width': '200%',
+                                         'background-color': "#000000",
+                                         'text-align': 'left',
+                                         },
+                                ),
+                                target="tt_bc1",
+                                style = {#'font-size': 14, 
+                                         'width': '30%',
+                                         'background-color': "#000000",
+                                         'text-align': 'left',
+                                         },
+                                ),
+                        dcc.Dropdown(
+                            id='binary_classifier_model',
+                            options=[{"label": i, "value": i} for i in ['Logistic', 'Probit']
+                                     ],
+                            multi=False, 
+                            value='Logistic',
+                            style={'width': '100%', 
+                                   'display': 'block',
                              },
-                        ),
-                html.Hr(),
+                            ),
+                        ],
+                        style={'width': '15%',
+                               'display': 'inline-block',
+                               'vertical-align': 'bottom',
+                               'margin-right': '5%',
+                        },
+                    ),
+                
+                html.Br(),
                 html.Br(),
                 
                 dbc.Button('Run logistic regression', 
-                            id='btn4', n_clicks=0,
+                            id='btn4', 
+                            n_clicks=0,
                             style={'width': '20%',
-                                'font-size': 12,
-                                "background-color": "#2a8cff",
-                                'display': 'inline-block',
-                                'margin-right': '20px',
-                    },
-                    ),
+                                   'font-size': 12,
+                                   "background-color": "#2a8cff",
+                                   'display': 'inline-block',
+                                   'margin-right': '20px',
+                                   },
+                            ),
                 dbc.Button("View parameters table",
                            id="open-centered5",
-                           #color="dark",
-                           #className="mr-1",
-                           style={
-                               "background-color": "#2a8cff",
-                               'width': '20%',
-                                   'font-size': 12,
-                               'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
-                               },
-                    ),
+                           style={"background-color": "#2a8cff",
+                                  'width': '20%',
+                                  'font-size': 12,
+                                  'display': 'inline-block',
+                                  'margin-right': '20px',
+                                  },
+                           ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot4a"), html.Br(), html.P("", id='tab4atxt')]),
-                                    dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered5", className="ml-auto")
+                    [dbc.ModalBody([html.Div(id="table_plot4a"), 
+                                    html.Br(), 
+                                    html.P("", id='tab4atxt'),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                               id="close-centered5", 
+                                               className="ml-auto"),
                                     ),
                             ],
                     id="modal-centered5",
@@ -2122,24 +4125,23 @@ def control_card4():
                 
                 dbc.Button("View predictions table",
                            id="open-centered6",
-                           #color="dark",
-                           #className="mr-1",
-                           style={
-                               "background-color": "#2a8cff",
-                               'width': '20%',
-                                   'font-size': 12,
-                               'display': 'inline-block',
-                               #"height": "40px", 
-                               #'padding': '10px',
-                               #'margin-bottom': '10px',
-                               'margin-right': '20px',
-                               #'margin-left': '11px',
-                               },
-                    ),
+                           style={"background-color": "#2a8cff",
+                                  'width': '20%',
+                                  'font-size': 12,
+                                  'display': 'inline-block',
+                                  'margin-right': '20px',
+                                  },
+                           ),
                 dbc.Modal(
-                    [dbc.ModalBody([html.Div(id="table_plot4b"), html.Br(), html.P("", id='tab4btxt')]),
-                                    dbc.ModalFooter(
-                                    dbc.Button("Close", id="close-centered6", className="ml-auto")
+                    [dbc.ModalBody([html.Div(id="table_plot4b"), 
+                                    html.Br(), 
+                                    html.P("", id='tab4btxt'),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                               id="close-centered6", 
+                                               className="ml-auto")
                                     ),
                             ],
                     id="modal-centered6",
@@ -2153,36 +4155,352 @@ def control_card4():
                     ),
                 
                 dbc.Button('Smart scale', 
-                            id='btn_ss3', n_clicks=0,
+                            id='btn_ss3', 
+                            n_clicks=0,
                             style={'width': '20%',
+                                   'font-size': 12,
+                                   "background-color": "#2a8cff",
+                                   'display': 'inline-block',
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="ss3",
+                       style={'display': 'inline-block', 
+                              'width': '3%', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on " +
+                            "'Smart Scale' and the app will automatically detect and apply " +
+                            "the best scaling for each skewed variable. Smart scaling will " +
+                            "not necessarily improve the r-square.  To remove the rescaling " +
+                            "just click 'Run Logistic Regression'.", 
+                            target="ss3", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                
+                html.P("", id = 'rt2'),
+                ],
+        
+                style={'width': '98.5%',
+                       'margin-left': '1%',
+                    },
+            )
+
+def control_card_glm():
+
+    return html.Div(
+        children=[
+                html.H5("Run a Generalized Linear Model",
+                        style={'display': 'inline-block', 
+                               'margin-right': '1%',
+                               },
+                        ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="tt_glm1",
+                       style={'display': 'inline-block', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("...", 
+                            target="tt_glm1", 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                html.P("When trying to explain or predict a non-categorical response " + 
+                       "variable using two or more predictors."),
+                
+                html.Br(),
+                
+                html.B("Choose 2 or more predictors",
+                    style={'vertical-align': 'top',
+                           'margin-right': '1%',
+                           'display': 'inline-block',
+                       },
+                    ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="tt_glm2",
+                       style={'display': 'inline-block', 
+                              'color':'#bfbfbf',
+                              },
+                       ),
+                dbc.Tooltip("The app will recognize if your response variable occurs in this " +
+                            "list of predictors. If it does, the app will ignore it.",
+                    target="tt_glm2", 
+                    style = {'font-size': 12,
+                             },
+                    ),
+                
+                dcc.Dropdown(
+                        id='glm_predictors',
+                        options=[{"label": i, "value": i} for i in []],
+                        multi=True, 
+                        value=None,
+                        style={'width': '100%',
+                             },
+                        ),
+                
+                html.Br(),
+                
+                html.Div(
+                    children = [
+                        html.B("Choose your response variable",
+                            style={'vertical-align': 'top',
+                                   'margin-right': '1%',
+                                   'display': 'inline-block', 
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_glm3",
+                               style={'display': 'inline-block', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        dbc.Tooltip("Does not include categorical features or any numerical " +
+                                    "feature with less than 4 unique values.", 
+                                    target="tt_glm3", 
+                                    style = {'font-size': 12,
+                                             },
+                                    ),
+                        dcc.Dropdown(
+                                id='glm_response_var',
+                                options=[{"label": i, "value": i} for i in []],
+                                multi=False, 
+                                value=None,
+                                optionHeight=65,
+                                style={'width': '100%',
+                                       'display': 'inline-block',
+                                     },
+                                ),
+                            ],
+                            style={'width': '30%',
+                                   'display': 'inline-block',
+                                   'margin-right': '5%',
+                            },
+                        ),
+                
+                html.Div(
+                    children = [
+                        html.B("Choose a model",
+                            style={'display': 'inline-block', 
+                                   'margin-right': '1%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_glm5",
+                               style={'display': 'inline-block', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        
+                        dbc.Tooltip(
+                            html.Div([
+                                html.P("• Binomial: Ensure that the response variable is a " +
+                                       "non-negative integer."),
+                                html.P("• Gaussian: Gaussian GLMs assume that the response " + 
+                                       "variable follows a normal distribution. The response " +
+                                       "variable should be continuous."),
+                                html.P("• Inverse Gaussian: The response variable should be " +
+                                       "greater than 0 and continuous."),
+                                html.P("• Negative Binomial: The response variable should be a " +
+                                       "non-negative integer."),
+                                html.P("• Poisson: The response variable should be a " +
+                                       "non-negative integer."),
+                                html.P("• Tweedie: Tweedie distribution GLMs are versatile, " +
+                                       "but the power parameter should be chosen carefully."),
+                                ], 
+                                style = {'font-size': 14, 
+                                         'width': '200%',
+                                         'background-color': "#000000",
+                                         'text-align': 'left',
+                                         },
+                                ),
+                                target="tt_glm5",
+                                style = {#'font-size': 14, 
+                                         'width': '30%',
+                                         'background-color': "#000000",
+                                         'text-align': 'left',
+                                         },
+                                ),
+                        dcc.Dropdown(
+                            id='glm_model',
+                            options=[{"label": i, "value": i} for i in ['Binomial', 
+                                                                        'Gamma',
+                                                                        'Gaussian', 
+                                                                        'InverseGaussian',
+                                                                        'NegativeBinomial', 
+                                                                        'Poisson', 
+                                                                        'Tweedie']
+                                     ],
+                            multi=False, 
+                            value='Gaussian',
+                            style={'width': '100%', 
+                                   'display': 'block',
+                                   },
+                            ),
+                        ],
+                        style={'width': '15%',
+                               'display': 'inline-block',
+                               'margin-right': '5%',
+                               },
+                    ),
+                
+                html.Div(
+                    children = [
+                        html.B("Remove unimportant variables",
+                            style={'display': 'inline-block', 
+                                   'margin-right': '1%',
+                                   },
+                            ),
+                        html.I(className="fas fa-question-circle fa-lg", 
+                               id="tt_glm4",
+                               style={'display': 'inline-block', 
+                                      'color':'#bfbfbf',
+                                      },
+                               ),
+                        dbc.Tooltip("Remove variables that have little-to-no effect on model " +
+                                    "performance. Removal is done using recursive feature " +
+                                    "elimination with 5-fold cross-validation. Unimportant " +
+                                    "features will not be removed if the resulting number of " +
+                                    "variables is less 2.", 
+                                    target="tt_glm4", 
+                                    style = {'font-size': 12,
+                                             },
+                                    ),
+                        dcc.Dropdown(
+                            id='rfecv_glm',
+                            options=[{"label": i, "value": i} for i in ['Yes', 'No']],
+                            multi=False, 
+                            value='Yes',
+                            style={'width': '60%', 
+                                   'display': 'inline-block',
+                             },
+                            ),
+                        ],
+                        style={'width': '30%',
+                               'display': 'inline-block',
+                        },
+                    ),
+                
+                
+                html.Br(),
+                html.Br(),
+                
+                dbc.Button('Run GLM', 
+                           id='btn_glm', 
+                           n_clicks=0,
+                    style={'display': 'inline-block',
+                           'width': '18%',
+                           'font-size': 12,
+                           'margin-right': '3%',
+                           'background-color': "#2a8cff",
+                           },
+                    ),
+                
+                dbc.Button("View parameters table",
+                           id="open-glm_parameters_table",
+                           style={
+                               "background-color": "#2a8cff",
+                               'width': '18%',
+                               'font-size': 12,
+                               'display': 'inline-block',
+                               'margin-right': '3%',
+                               },
+                    ),
+                dbc.Modal(
+                    [dbc.ModalBody([html.Div(id='glm_params_table'), 
+                                    html.Br(), 
+                                    html.P("", id='glm_params_txt'),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(dbc.Button("Close", 
+                                                id="close-glm_parameters_table", 
+                                                className="ml-auto")
+                                    ),
+                            ],
+                    id="modal-glm_parameters_table",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    size="xl",
+                    keyboard=True,
+                    fade=True,
+                    backdrop=True,
+                    ),
+                
+                dbc.Button("View model performance",
+                           id="open-glm_performance_table",
+                           style={
+                               "background-color": "#2a8cff",
+                               'width': '18%',
+                               'font-size': 12,
+                               'display': 'inline-block',
+                               'margin-right': '3%',
+                               },
+                    ),
+                dbc.Modal(
+                    [dbc.ModalBody([html.Div(id='glm_performance_table'), 
+                                    html.Br(), 
+                                    html.P("Adjusted R-square accounts for sample size and " +
+                                           "the number of predictors used."),
+                                    ],
+                                   ),
+                     dbc.ModalFooter(
+                                    dbc.Button("Close", 
+                                               id="close-glm_performance_table", 
+                                               className="ml-auto")
+                                    ),
+                            ],
+                    id="modal-glm_performance_table",
+                    is_open=False,
+                    centered=True,
+                    autoFocus=True,
+                    size="xl",
+                    keyboard=True,
+                    fade=True,
+                    backdrop=True,
+                    ),
+                
+                dbc.Button('Smart scale', 
+                            id='btn_ss_glm', 
+                            n_clicks=0,
+                            style={
                                 'font-size': 12,
                                 "background-color": "#2a8cff",
                                 'display': 'inline-block',
-                                'margin-right': '10px',
-                    },
-                    ),
-                html.I(className="fas fa-question-circle fa-lg", id="ss3",
-                            style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},),
-                dbc.Tooltip("Skewed data can weaken analyses and visualizations. Click on 'Smart Scale' and the app will automatically detect and apply the best scaling for each skewed variable. Smart scaling will not necessarily improve the r-square.  To remove the rescaling just click 'Run Logistic Regression'.", 
-                            target="ss3", style = {'font-size': 12},),
-                
-                #html.Button('Download results', id='btn4b', n_clicks=0,
-                #    style={#'width': '100%',
-                #            'display': 'inline-block',
-                #            #'margin-right': '10px',
-                #    },
-                #    ),
-                html.P("", id = 'rt2'),
+                                'margin-right': '1%'
+                                },
+                            ),
+                html.I(className="fas fa-question-circle fa-lg", 
+                       id="tt_ss_glm",
+                       style={'display': 'inline-block', 
+                              'color':'#99ccff',
+                              },
+                       ),
+                dbc.Tooltip("Skewed data can weaken analyses and visualizations. " +
+                            "Click on 'Smart Scale' and the app will automatically detect and " +
+                            "apply the best scaling for each skewed variable. Smart scaling " +
+                            "will not necessarily improve the r-square. To remove the " +
+                            "rescaling just click 'Run GLM'.", 
+                            target='tt_ss_glm', 
+                            style = {'font-size': 12,
+                                     },
+                            ),
+                html.P("", id = 'rt1_glm'),
                 ],
-                style={'margin-bottom': '0px',
-                       'margin': '10px',
-                       'width': '98.5%',
-                    },
+                style={'width': '98.5%',
+                       'margin-left': '1%',
+                       },
             )
-            
-#########################################################################################
-######################## DASH APP FIGURE FUNCTIONS ######################################
-#########################################################################################
+
+
+####################################################################################################
+###################      DASH APP REGRESSION OUTPUT FUNCTIONS      #################################
+####################################################################################################
+
 
 def parse_contents(contents, filename, date):
     
@@ -2203,7 +4521,7 @@ def parse_contents(contents, filename, date):
     return df.to_json()
 
 
-def generate_figure_1():
+def generate_outputs_iterative_multi_model_regression():
 
     return html.Div(
                 id="Figure1",
@@ -2222,14 +4540,12 @@ def generate_figure_1():
                 style={'width': '100%',
                     'display': 'inline-block',
                     'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-                    'margin-right': '10px',
+                    'padding': '1%',
                 },
     )
  
    
-def generate_figure_2():
+def generate_figure_single_regression():
 
     return html.Div(
                 id="Figure2",
@@ -2243,86 +4559,97 @@ def generate_figure_2():
                                     ],
                                 ),
                         ),
-                    html.P("Confidence intervals (CI) reflect confidence in the mean y-value across the x-axis. Prediction intervals (PI) pertain to the model, where points outside the PI are unlikely to be explained by the model. Note: When running a robust regression, only the observed vs. predicted r\u00B2 value is returned, which usually equals or nearly equals the r\u00B2 of the fitted model.", 
+                    html.P("Confidence intervals (CI) reflect confidence in the mean y-value " +
+                           "across the x-axis. Prediction intervals (PI) pertain to the model, " +
+                           "where points outside the PI are unlikely to be explained by the " +
+                           "model. Note: When running a robust regression, only the observed " +
+                           "vs. predicted r\u00B2 value is returned, which usually equals or " +
+                           "nearly equals the r\u00B2 of the fitted model.", 
                            ),
                     ],
                 style={'width': '100%',
-                    'display': 'inline-block',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-                    'margin-right': '10px',
-                },
-    )
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
+                       },
+                )
 
 
 def generate_figure_quantile_regression():
 
     return html.Div(
-                id="Figure2_quant",
                 children=[
                     dcc.Loading(
-                        id="loading-fig2_quant",
                         type="default",
                         fullscreen=False,
-                        children=html.Div(id="figure2_quant",
-                            children=[dcc.Graph(id="figure_plot2_quant"),
+                        children=html.Div(
+                            children=[dcc.Graph(id="figure_quantile_regression"),
                                     ],
                                 ),
                         ),
                     html.Br(),
-                    html.P("Coefficients of determination (R\u00B2) for quantile regression are Cox-Snell likelihood ratio pseudo R\u00B2 values. They are not directly comparable to the r\u00B2 of ordinary least-squares regression.",
-                                 
-                                 ), 
+                    html.P("Coefficients of determination (R\u00B2) for quantile regression " +
+                           "are Cox-Snell likelihood ratio pseudo R\u00B2 values. They are not " +
+                           "directly comparable to the r\u00B2 of ordinary least-squares " +
+                           "regression.",
+                           ), 
                     ],
                 style={'width': '100%',
-                    'display': 'inline-block',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-                    'margin-right': '10px',
-                },
-    )
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
+                       },
+                )
 
 
-
-def generate_figure_3():
+def generate_multiple_regression_outputs():
 
     return html.Div(
-                id="Figure3",
                 children=[
                     dcc.Loading(
-                        id="loading-fig3",
                         type="default",
                         fullscreen=False,
-                        children=html.Div(id="figure3",
-                            children=[dcc.Graph(id='figure_plot3'),
+                        children=html.Div(
+                            children=[dcc.Graph(id='figure_multiple_linear_regression'),
                                     ],
                                 ),
                         ),
                     html.P("", id='fig3txt')
                     ],
                 style={'width': '100%',
-                    'display': 'inline-block',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-                    'margin-right': '10px',
-                },
-    )
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
+                       },
+                )
 
 
-def generate_figure_4a():
+def generate_logistic_a():
 
     return html.Div(
                 id="Figure4a",
                 children=[
                     html.H6("Receiver Operating Characteristic (ROC curve)",
-                        style={'width': '73%', 'display': 'inline-block',}),
+                        style={'display': 'inline-block',
+                               'margin-right': '1%',
+                               },
+                        ),
                     html.I(className="fas fa-question-circle fa-lg", id="target_roc",
-                        style={'display': 'inline-block', 'width': '10%', 'color':'#bfbfbf'},),
-                    dbc.Tooltip("ROCs reveal the tradeoff between capturing a fraction of actual positives (1's) and missclassifying negatives (0's). The true positive rate (TPR) is the fraction of actual positives that were correctly classified. The false positive rate (FPR) is the fraction of actual negatives (0's) that were misclassified. ROCs do not reveal the reliability of predictions (precision).",
-                        target="target_roc", style = {'font-size': 12},),
+                        style={'display': 'inline-block', 
+                               'color':'#bfbfbf',
+                               },
+                        ),
+                    dbc.Tooltip("ROCs reveal the tradeoff between capturing a fraction of " +
+                                "actual positives (1's) and missclassifying negatives (0's). " + 
+                                "The true positive rate (TPR) is the fraction of actual " +
+                                "positives that were correctly classified. The false " +
+                                "positive rate (FPR) is the fraction of actual negatives " +
+                                "(0's) that were misclassified. ROCs do not reveal the " +
+                                "reliability of predictions (precision).",
+                        target="target_roc", 
+                        style = {'font-size': 12,
+                                 },
+                        ),
                     dcc.Loading(
                         id="loading-fig4a",
                         type="default",
@@ -2334,28 +4661,40 @@ def generate_figure_4a():
                         ),
                     html.P("", id='fig4atxt'),
                     ],
-                style={'width': '45%',
-                    'display': 'inline-block',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-                    'margin-right': '8%',
-                    'vertical-align': 'top',
-                },
-    )
+                style={'width': '48%',
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
+                       'margin-right': '4%',
+                       },
+                )
 
 
-def generate_figure_4b():
+def generate_logistic_b():
 
     return html.Div(
                 id="Figure4b",
                 children=[
                     html.H6("Precision-recall curve (PRC)",
-                        style={'width': '45%', 'display': 'inline-block',}),
-                    html.I(className="fas fa-question-circle fa-lg", id="target_prc",
-                        style={'display': 'inline-block', 'width': '10%', 'color':'#bfbfbf'},),
-                    dbc.Tooltip("PRCs reveal the tradeoff between correctly classifying actual positives (1's) and capturing a substantial fraction of positives. Precision is the fraction of positive predictions that were correct. Recall is another name for the TPR. A good ROC is misleading if the PRC is weak.",
-                        target="target_prc", style = {'font-size': 12},),
+                        style={'margin-right': '1%',
+                               'display': 'inline-block',
+                               },
+                        ),
+                    html.I(className="fas fa-question-circle fa-lg", 
+                           id="target_prc",
+                           style={'display': 'inline-block',
+                                  'color':'#bfbfbf',
+                                  },
+                           ),
+                    dbc.Tooltip("PRCs reveal the tradeoff between correctly classifying actual " + 
+                                "positives (1's) and capturing a substantial fraction of " +
+                                "positives. Precision is the fraction of positive predictions " +
+                                "that were correct. Recall is another name for the TPR. A " +
+                                "good ROC is misleading if the PRC is weak.",
+                        target="target_prc", 
+                        style = {'font-size': 12,
+                                 },
+                        ),
                     dcc.Loading(
                         id="loading-fig4b",
                         type="default",
@@ -2367,35 +4706,66 @@ def generate_figure_4b():
                         ),
                     html.P("", id='fig4btxt'),
                     ],
-                style={'width': '45%',
-                    'display': 'inline-block',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-                    'margin-right': '10px',
-                    'vertical-align': 'top',
+                style={'width': '48%',
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
+                       },
+                )
+
+
+def generate_glm_outputs():
+
+    return html.Div(
+                children=[
+                    dcc.Loading(
+                        type="default",
+                        fullscreen=False,
+                        children=html.Div(
+                            children=[dcc.Graph(id='figure_glm'),
+                                    ],
+                                ),
+                        ),
+                    html.P("", id='figure_glm_txt')
+                    ],
+                style={'width': '100%',
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
                 },
     )
 
 
-#########################################################################################
-######################### DASH APP TABLE FUNCTIONS ######################################
-#########################################################################################
+def generate_cox_outputs():
+
+    return html.Div(
+                children=[
+                    dcc.Loading(
+                        type="default",
+                        fullscreen=False,
+                        children=html.Div(
+                            children=[dcc.Graph(id='cox_regression_figure'),
+                                    ],
+                                ),
+                        ),
+                    html.P("", id='cox_fig_txt')
+                    ],
+                style={'width': '100%',
+                       'display': 'inline-block',
+                       'background-color': '#f0f0f0',
+                       'padding': '1%',
+                },
+    )
 
 
-
-#########################################################################################
-################################# DASH APP LAYOUT #######################################
-#########################################################################################
-
+####################################################################################################
+##############################        DASH APP LAYOUT        #######################################
+####################################################################################################
 
 
 app.layout = html.Div([
     
     dcc.Store(id='main_df', storage_type='memory'),
-    dcc.Store(id='df_models_logistic', storage_type='memory'),
-    dcc.Store(id='df_equations', storage_type='memory'),
-    dcc.Store(id='df1_summary_logistic', storage_type='memory'),
     
     html.Div(
         id='cat_vars',
@@ -2403,34 +4773,6 @@ app.layout = html.Div([
         ),
     html.Div(
         id='di_numerical_vars',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder1',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder2',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder3',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder4',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder5',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder6',
-        style={'display': 'none'}
-        ),
-    html.Div(
-        id='placeholder7',
         style={'display': 'none'}
         ),
     html.Div(
@@ -2447,9 +4789,11 @@ app.layout = html.Div([
             id="banner1",
             className="banner",
             children=[html.Img(src=app.get_asset_url("RUSH_full_color.jpg"), 
-                               style={'textAlign': 'left'}),
+                               style={'textAlign': 'left'},
+                               ),
                       html.Img(src=app.get_asset_url("plotly_logo.png"), 
-                               style={'textAlign': 'right'}),
+                               style={'textAlign': 'right'},
+                               ),
                       ],
         ),
     
@@ -2458,198 +4802,72 @@ app.layout = html.Div([
             className="ten columns",
             children=[description_card1()],
             style={'width': '95.3%',
-                    'display': 'inline-block',
-                    'border-radius': '15px',
-                    'box-shadow': '1px 1px 1px grey',
-                    'background-color': '#f0f0f0',
-                    'padding': '0px',
-                    'margin-bottom': '10px',
-            },
-        ),
-    
-    html.Div(
-            id="right-column1",
-            className="one columns",
-            children=[
-                html.Div(
-                id="Data-Table1",
-                children=[dcc.Loading(
-                    id="data-table1",
-                    type="default",
-                    fullscreen=False,
-                    children=html.Div(id="data_table1",
-                        children=[html.H5("Data Table", style={'display': 'inline-block', 'width': '8.5%'},
-                                          ),
-                                  html.I(className="fas fa-question-circle fa-lg", id="target_DataTable",
-                                      style={'display': 'inline-block', 'width': '3%', 'color':'#99ccff'},
-                                      ),
-                                  dbc.Tooltip("Use this table to ensure your data loaded as expected and to delete any rows or select, delete, and rename any columns. There are no limits on dataset size when running the application locally. But, when using the web application, any dataset containing more than 5K rows or 50 columns will be randomly sampled to meet those constraints.", target="target_DataTable",
-                                        style = {'font-size': 12, 
-                                                 #'display': 'inline-block',
-                                                 },
-                                        ),
-                                  
-                                  html.P("", id='rt4'),
-                                  
-                                  dash_table.DataTable(
-                                        id='data_table',
-                                        columns=[{
-                                            'name': 'Column {}'.format(i),
-                                            'id': 'column-{}'.format(i),
-                                            'deletable': True,
-                                            'renamable': True,
-                                            'selectable': True,
-                                        } for i in range(1, 9)],
-                                        
-                                        data=None,
-                                        #virtualization=True,
-                                        editable=True,
-                                        page_action='native',
-                                        page_size=13,
-                                        filter_action='native',
-                                        sort_action='native',
-                                        row_deletable=True,
-                                        column_selectable='multi',
-                                        export_format='xlsx',
-                                        export_headers='display',
-                                        #fixed_rows={'headers': True},
-                                        
-                                        style_header={'padding':'5px', 'width':'250px', 'minWidth':'250px', 'maxWidth':'250px', 
-                                                    'textAlign': 'center', 'overflowX': 'auto'},
-                                        style_data  ={'padding':'5px', 'width':'250px', 'minWidth':'250px', 'maxWidth':'250px', 
-                                                    'textAlign': 'center', 'overflowX': 'auto'},
-                                        
-                                        style_table={'height': '120px', 'overflowX': 'auto'},
-                                    ),
-                                ],
-                            ),
-                        ),
-                        ],
-                    ),
-                ],
-                style={'width': '95.3%',
-                        'height': '170px', 
-                        #'display': 'flex',
-                        'border-radius': '15px',
-                        'box-shadow': '1px 1px 1px grey',
-                        'background-color': '#f0f0f0',
-                        'padding': '10px',
-                        'margin-bottom': '10px',
-                    },
+                   'display': 'inline-block',
+                   'border-radius': '15px',
+                   'box-shadow': '1px 1px 1px grey',
+                   'background-color': '#f0f0f0',
+                   'margin-bottom': '1%',
+                   },
             ),
     
     html.Div(
-            id="left-column2",
-            className="two columns",
-            children=[control_card1(),
-                      generate_figure_1(),
-                      #generate_table_1(),
-                      ],
-            style={'width': '95.3%',
-                    'display': 'inline-block',
-                    'border-radius': '15px',
-                    'box-shadow': '1px 1px 1px grey',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
-            },
-        ),
-    
-    html.Div(
-        id="left-column3",
-        className="two columns",
-        children=[control_card2(),
-                  generate_figure_2(),
-                  
-                  ],
-        style={'width': '95.3%',
-                'display': 'inline-block',
-                'border-radius': '15px',
-                'box-shadow': '1px 1px 1px grey',
-                'background-color': '#f0f0f0',
-                'padding': '10px',
-                'margin-bottom': '10px',
-        },
-    ),
-    
-    html.Div(
-        id="left-column3_quant",
-        className="two columns",
-        children=[control_card_quantile_regression(),
-                  generate_figure_quantile_regression(),
-                  
-                  ],
-        style={'width': '95.3%',
-                'display': 'inline-block',
-                'border-radius': '15px',
-                'box-shadow': '1px 1px 1px grey',
-                'background-color': '#f0f0f0',
-                'padding': '10px',
-                'margin-bottom': '10px',
-        },
-    ),
-    
-    
-    html.Div(
-        id="left-column4",
-        className="two columns",
-        children=[control_card3(),
-                  generate_figure_3(),
-                  ],
-        style={'width': '95.3%',
-                'display': 'inline-block',
-                'border-radius': '15px',
-                'box-shadow': '1px 1px 1px grey',
-                'background-color': '#f0f0f0',
-                'padding': '10px',
-                'margin-bottom': '10px',
-        },
-    ),
-    
-    html.Div(
-        id="left-column5",
-        className="two columns",
-        children=[control_card4(),
-                  generate_figure_4a(),
-                  generate_figure_4b(),
-                  ],
-        style={'width': '95.3%',
-                'display': 'inline-block', #'vertical-align': 'top', 'margin-left': '3vw', 'margin-top': '3vw',
-                'border-radius': '15px',
-                'box-shadow': '1px 1px 1px grey',
-                'background-color': '#f0f0f0',
-                'padding': '10px',
-                'margin-bottom': '10px',
-        },
-    ),
+            className="ten columns",
+            children=[
+                dbc.Carousel(
+                    items=[
+                        {"key": "1", "src": "/assets/images_for_ap/a1.png"},
+                        {"key": "2", "src": "/assets/images_for_ap/a2.png"},
+                        {"key": "3", "src": "/assets/images_for_ap/a3.png"},
+                        {"key": "4", "src": "/assets/images_for_ap/a4.png"},
+                        {"key": "5", "src": "/assets/images_for_ap/a5.png"},
+                        {"key": "6", "src": "/assets/images_for_ap/a6.png"},
+                        {"key": "7", "src": "/assets/images_for_ap/a7.png"},
+                        {"key": "8", "src": "/assets/images_for_ap/a8.png"},
+                    ],
+                    controls=True,
+                    indicators=True,
+                    interval=5000,
+                    ride="carousel",
+                    style={"maxWidth": "100%"},
+                    
+                ),
+                ],
+            style={'width': '95%',
+                   'display': 'block',
+                   'margin-left': '2%',
+                   'margin-right': '1%',
+                   'margin-top': '1%',
+                   'margin-bottom': '1%',
+                   },
+            ),
     
     html.Div(
             id="bottom-column1",
             className="ten columns",
             children=[description_card_final()],
             style={'width': '95.3%',
-                    'display': 'inline-block',
-                    'border-radius': '15px',
-                    'box-shadow': '1px 1px 1px grey',
-                    'background-color': '#f0f0f0',
-                    'padding': '10px',
-                    'margin-bottom': '10px',
+                   'display': 'inline-block',
+                   'border-radius': '15px',
+                   'box-shadow': '1px 1px 1px grey',
+                   'background-color': '#f0f0f0',
+                   'padding': '1%',
             },
         ),
 
 ])
 
 
+####################################################################################################
+############################          Callbacks         ############################################
+####################################################################################################
 
-#########################################################################################
-############################    Callbacks   #############################################
-#########################################################################################
-
+#############################      Modals      #####################################################
 
 @app.callback(
-    Output("modal-centered", "is_open"),
-    [Input("open-centered", "n_clicks"), Input("close-centered", "n_clicks")],
-    [State("modal-centered", "is_open")],
+    Output("modal-single_regression_residuals_plot", "is_open"),
+    [Input("open-single_regression_residuals_plot", "n_clicks"), 
+     Input("close-single_regression_residuals_plot", "n_clicks")],
+    [State("modal-single_regression_residuals_plot", "is_open")],
     prevent_initial_call=True,
 )
 def toggle_modal(n1, n2, is_open):
@@ -2659,9 +4877,10 @@ def toggle_modal(n1, n2, is_open):
 
 
 @app.callback(
-    Output("modal-centered_quant", "is_open"),
-    [Input("open-centered_quant", "n_clicks"), Input("close-centered_quant", "n_clicks")],
-    [State("modal-centered_quant", "is_open")],
+    Output("modal-quant_regression_table", "is_open"),
+    [Input("open-quant_regression_table", "n_clicks"), 
+     Input("close-quant_regression_table", "n_clicks")],
+    [State("modal-quant_regression_table", "is_open")],
     prevent_initial_call=True,
 )
 def toggle_modal_quant(n1, n2, is_open):
@@ -2672,7 +4891,8 @@ def toggle_modal_quant(n1, n2, is_open):
 
 @app.callback(
     Output("modal-centered_single", "is_open"),
-    [Input("open-centered_single", "n_clicks"), Input("close-centered_single", "n_clicks")],
+    [Input("open-centered_single", "n_clicks"), 
+     Input("close-centered_single", "n_clicks")],
     [State("modal-centered_single", "is_open")],
     prevent_initial_call=True,
 )
@@ -2683,9 +4903,10 @@ def toggle_modal_single(n1, n2, is_open):
 
 
 @app.callback(
-    Output("modal-centered2", "is_open"),
-    [Input("open-centered2", "n_clicks"), Input("close-centered2", "n_clicks")],
-    [State("modal-centered2", "is_open")],
+    Output("modal-iterative_multimodel_ols_table1", "is_open"),
+    [Input("open-iterative_multimodel_ols_table1", "n_clicks"), 
+     Input("close-iterative_multimodel_ols_table1", "n_clicks")],
+    [State("modal-iterative_multimodel_ols_table1", "is_open")],
     prevent_initial_call=True,
 )
 def toggle_modal_c2(n1, n2, is_open):
@@ -2693,6 +4914,83 @@ def toggle_modal_c2(n1, n2, is_open):
         return not is_open
     return is_open
 
+
+@app.callback(
+    Output('modal-iterative_ols', "is_open"),
+    [Input('open-iterative_ols', "n_clicks"), 
+     Input('close-iterative_ols', "n_clicks")],
+    [State('modal-iterative_ols', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_iterative_ols(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-single_ols', "is_open"),
+    [Input('open-single_ols', "n_clicks"), 
+     Input('close-single_ols', "n_clicks")],
+    [State('modal-single_ols', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_single_ols(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-quant_reg', "is_open"),
+    [Input('open-quant_reg', "n_clicks"), 
+     Input('close-quant_reg', "n_clicks")],
+    [State('modal-quant_reg', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_quant_reg(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-multi_reg', "is_open"),
+    [Input('open-multi_reg', "n_clicks"), 
+     Input('close-multi_reg', "n_clicks")],
+    [State('modal-multi_reg', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_multi_reg(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-logistic_reg', "is_open"),
+    [Input('open-logistic_reg', "n_clicks"), 
+     Input('close-logistic_reg', "n_clicks")],
+    [State('modal-logistic_reg', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_logistic_reg(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-glm', "is_open"),
+    [Input('open-glm', "n_clicks"), 
+     Input('close-glm', "n_clicks")],
+    [State('modal-glm', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_glm(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
 
 
 @app.callback(
@@ -2708,10 +5006,6 @@ def toggle_modal_cc(n1, df, is_open):
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
-    
-    df = 0
-    if 'main_df' in jd1:
-        df = 1
     
     if n1:# or df == 1:
         return not is_open
@@ -2731,18 +5025,41 @@ def toggle_modal_ccl(n1, n2, df, is_open):
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
     
-    df = 0
-    if 'main_df' in jd1:
-        df = 1
-    
-    if n1 or n2:# or df == 1:
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-choose_regression", "is_open"),
+    [Input("open-choose_regression", "n_clicks"), 
+     Input("close-choose_regression", "n_clicks")],
+    [State("modal-choose_regression", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_cc_choose_reg(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-inspect_main_datatable", "is_open"),
+    [Input("open-inspect_main_datatable", "n_clicks"), 
+     Input("close-inspect_main_datatable", "n_clicks")],
+    [State("modal-inspect_main_datatable", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_inspect_main_datatable(n1, n2, is_open):
+    if n1 or n2:
         return not is_open
     return is_open
 
 
 @app.callback(
     Output("modal-centered-controlcard1", "is_open"),
-    [Input("open-centered-controlcard1", "n_clicks"), Input("close-centered-controlcard1", "n_clicks")],
+    [Input("open-centered-controlcard1", "n_clicks"), 
+     Input("close-centered-controlcard1", "n_clicks")],
     [State("modal-centered-controlcard1", "is_open")],
     prevent_initial_call=True,
 )
@@ -2754,7 +5071,8 @@ def toggle_modal_cc1(n1, n2, is_open):
 
 @app.callback(
     Output("modal-centered3", "is_open"),
-    [Input("open-centered3", "n_clicks"), Input("close-centered3", "n_clicks")],
+    [Input("open-centered3", "n_clicks"), 
+     Input("close-centered3", "n_clicks")],
     [State("modal-centered3", "is_open")],
     prevent_initial_call=True,
 )
@@ -2765,8 +5083,35 @@ def toggle_modal_c3(n1, n2, is_open):
 
 
 @app.callback(
+    Output("modal-glm_parameters_table", "is_open"),
+    [Input("open-glm_parameters_table", "n_clicks"), 
+     Input("close-glm_parameters_table", "n_clicks")],
+    [State("modal-glm_parameters_table", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_glm_params_table(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output("modal-glm_performance_table", "is_open"),
+    [Input("open-glm_performance_table", "n_clicks"), 
+     Input("close-glm_performance_table", "n_clicks")],
+    [State("modal-glm_performance_table", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_glm_performance_table(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
     Output("modal-centered4", "is_open"),
-    [Input("open-centered4", "n_clicks"), Input("close-centered4", "n_clicks")],
+    [Input("open-centered4", "n_clicks"), 
+     Input("close-centered4", "n_clicks")],
     [State("modal-centered4", "is_open")],
     prevent_initial_call=True,
 )
@@ -2778,7 +5123,8 @@ def toggle_modal_c4(n1, n2, is_open):
 
 @app.callback(
     Output("modal-centered5", "is_open"),
-    [Input("open-centered5", "n_clicks"), Input("close-centered5", "n_clicks")],
+    [Input("open-centered5", "n_clicks"), 
+     Input("close-centered5", "n_clicks")],
     [State("modal-centered5", "is_open")],
     prevent_initial_call=True,
 )
@@ -2790,7 +5136,8 @@ def toggle_modal_c5(n1, n2, is_open):
 
 @app.callback(
     Output("modal-centered6", "is_open"),
-    [Input("open-centered6", "n_clicks"), Input("close-centered6", "n_clicks")],
+    [Input("open-centered6", "n_clicks"), 
+     Input("close-centered6", "n_clicks")],
     [State("modal-centered6", "is_open")],
     prevent_initial_call=True,
 )
@@ -2799,6 +5146,47 @@ def toggle_modal_c6(n1, n2, is_open):
         return not is_open
     return is_open
 
+
+@app.callback(
+    Output('modal-cox', "is_open"),
+    [Input('cox_reg_btn', "n_clicks"), 
+     Input('close-cox', "n_clicks")],
+    [State('modal-cox', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_cox(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-cox_params_table', "is_open"),
+    [Input('open-cox_params_table', "n_clicks"), 
+     Input('close-cox_params_table', "n_clicks")],
+    [State('modal-cox_params_table', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_cox_params_table(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-cox_performance_table', "is_open"),
+    [Input('open-cox_performance_table', "n_clicks"), 
+     Input('close-cox_performance_table', "n_clicks")],
+    [State('modal-cox_performance_table', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_cox_performance_table(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+###############  Buttons, Main DataFrames, Main DataTable   ########################################
 
 
 @app.callback(
@@ -2825,13 +5213,15 @@ def toggle_modal_c6(n1, n2, is_open):
      ],
     prevent_initial_call=True,
 )
-def update_button_style(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, unplanned_visits, imaging):
+def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, 
+                         unplanned_visits, imaging):
     
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
     
-    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 't_and_e', 'unplanned_visits', 'imaging']
+    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 
+            'p_and_v', 't_and_e', 'unplanned_visits', 'imaging']
     sets = []
     for l in labs:
         if l in jd1:
@@ -2842,7 +5232,6 @@ def update_button_style(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_
                          'display': 'inline-block', 'margin-right': '20px'})
         
     return sets[0],sets[1],sets[2],sets[3],sets[4],sets[5],sets[6],sets[7],sets[8] 
-
 
 
 @app.callback([Output('main_df', 'data'),
@@ -2859,6 +5248,7 @@ def update_button_style(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_
                Input('t_and_e', 'n_clicks'),
                Input('unplanned_visits', 'n_clicks'),
                Input('imaging', 'n_clicks'),
+               Input('flchain', 'n_clicks'),
                ],
               [State('upload-data', 'filename'),
                State('upload-data', 'last_modified'),
@@ -2874,14 +5264,21 @@ def update_button_style(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_
                ],
               
             )
-def update_output1(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, unplanned_visits, imaging, file_name, list_of_dates, hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, t_and_e_yr, unplanned_visits_yr, imaging_yr):
+def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, 
+                          t_and_e, unplanned_visits, imaging, flchain, file_name, list_of_dates, 
+                          hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, t_and_e_yr, 
+                          unplanned_visits_yr, imaging_yr):
 
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
     
-    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 't_and_e', 'unplanned_visits', 'imaging']
-    yrs = [hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, t_and_e_yr, unplanned_visits_yr, imaging_yr]
+    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 
+            't_and_e', 'unplanned_visits', 'imaging', 'flchain']
+    
+    yrs = [hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, 
+           t_and_e_yr, unplanned_visits_yr, imaging_yr]
+    
     urls = ['https://github.com/klocey/HCRIS-databuilder/raw/master/filtered_datasets/HCRIS_filtered_',
             'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/HAIs/HAIs_',
             'https://github.com/klocey/hospitals-data-archive/raw/main/dataframes/filtered_files/Hospital_Acquired_Conditions_Reduction_Program/Hospital_Acquired_Conditions_Reduction_Program_',
@@ -2897,35 +5294,52 @@ def update_output1(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v,
     for i, lab in enumerate(labs):
         if lab in jd1:
             select_preprocessed = 'y'
-            url = urls[i] + yrs[i] + '.csv'
-            df = pd.read_csv(url)
+            if lab == 'flchain':
+                df = sm.datasets.get_rdataset("flchain", "survival").data
+            else:
+                url = urls[i] + yrs[i] + '.csv'
+                df = pd.read_csv(url)
             break
     
     if select_preprocessed == 'n':
         
-        if list_of_contents is None or file_name is None or list_of_dates is None: # uploaded file contains nothing
+        if list_of_contents is None or file_name is None or list_of_dates is None: 
+            # uploaded file contains nothing
             return None, None, None, ""
         
-        elif file_name[-4:] != '.csv': # uploaded file does not have the .csv extension
-            error_string = "Error: This application only accepts the universally useful CSV file type. Ensure that your file has the .csv extension and is correctly formatted."
+        elif file_name[-4:] != '.csv': 
+            # uploaded file does not have the .csv extension
+            error_string = "Error: This application only accepts the universally useful "
+            error_string += "CSV file type. Ensure that your file has the .csv extension " 
+            error_string += "and is correctly formatted."
             return None, None, None, error_string
         
         elif list_of_contents is not None:
-            error_string = "Error: Your .csv file was not processed. Ensure there are only rows, columns, and one row of column headers. Make sure your file contains enough data to analyze."
+            error_string = "Error: Your .csv file was not processed. "
+            error_string = "Ensure there are only rows, columns, and one row of column headers. "
+            error_string = "Make sure your file contains enough data to analyze."
             children = 0
             df = 0
             
             # Attempt to parse the content
-            try: children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], [file_name], [list_of_dates])]
-            except: return None, None, None, error_string
+            try: 
+                children = [parse_contents(c, n, d) for c, n, d in zip([list_of_contents], 
+                                                                       [file_name], 
+                                                                       [list_of_dates])]
+            except: 
+                return None, None, None, error_string
             
             # Attempt to assign contents to an object
-            try: df = children[0]
-            except: return None, None, None, error_string
+            try: 
+                df = children[0]
+            except: 
+                return None, None, None, error_string
              
             # Attempt to read the object as a pandas dataframe
-            try: df = pd.read_json(df)
-            except: return None, None, None, error_string
+            try: 
+                df = pd.read_json(df)
+            except: 
+                return None, None, None, error_string
     
     
     # Check for variables named 'Unnamed' and removed them
@@ -2938,7 +5352,8 @@ def update_output1(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v,
     del ls1, var_ls
             
     # Check for whether the dataframe contains a trivial amount of data
-    if df.shape[0] < 4 or df.shape[1] < 2: return None, None, None, error_string
+    if df.shape[0] < 4 or df.shape[1] < 2: 
+        return None, None, None, error_string
         
     df.columns = df.columns.str.strip() # remove leading and trailing whitespaces
     #df.columns = df.columns.str.replace(":", " ") # replace colons with white spaces
@@ -2950,13 +5365,15 @@ def update_output1(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v,
         
     # If the dataframe contains >5000 rows or >50 columns, sample at random to meet those constraints
     if os.environ.get('DEPLOYMENT_ENV', 'local') != 'local':  
-        if df.shape[0] > 5000: df = df.sample(n = 5000, axis=0, replace=False, random_state=0)
-        if df.shape[1] > 50: df = df.sample(n = 50, axis=1, replace=False, random_state=0)
+        if df.shape[0] > 10000: df = df.sample(n = 10000, 
+                                               axis=0, replace=False, random_state=0)
+        if df.shape[1] > 50: df = df.sample(n = 50, 
+                                            axis=1, replace=False, random_state=0)
     
     df.dropna(how='all', axis=1, inplace=True) # drop all columns having no data
     df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
     df = df.loc[:, df.nunique() != 1] # drop all columns containing only one unique value
-        
+    
     ct, cat_vars, dichotomous_numerical_vars = 1, [], []
     variables = list(df)
     
@@ -3030,19 +5447,19 @@ def update_output1(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v,
     # A final check to dump any row containing no data
     df.dropna(how='all', axis=0, inplace=True)
     return df.to_json(), cat_vars, dichotomous_numerical_vars, ""
-    
-    
+
 
 @app.callback([Output('data_table', 'data'),
                Output('data_table', 'columns'),
                Output('data_table', 'style_table'),
-               Output("right-column1", "style"),
+               Output('Data-Table1', 'style'),
                ],
               [Input('main_df', 'data'),
-               Input('rt4', 'children')],
+               Input('rt4', 'children'),
+               ],
             )
-def update_data_table1(df, rt4):
-        
+def update_main_DataTable(df, rt4):
+    
     if df is None:
         raise PreventUpdate
         
@@ -3052,30 +5469,30 @@ def update_data_table1(df, rt4):
             raise PreventUpdate
             
         data = df.to_dict('records')
-        columns = [{'id': c, 'name': c, 'deletable': True, 'renamable': True, 'selectable': True} for c in df.columns]
+        columns = [{'id': c, 'name': c, 'deletable': True, 
+                    'renamable': True, 'selectable': True} for c in df.columns]
         
-        style = {'width': '95.3%',
-                'height': '610px', 
-                'border-radius': '15px',
-                'box-shadow': '1px 1px 1px grey',
-                'background-color': '#f0f0f0',
-                'padding': '10px',
-                'margin-bottom': '10px',
+        style_table={'overflowX': 'auto', 'overflowY': 'auto'}
+        
+        style = {'width': '100%',
+                 'height': '50%', 
+                 "display": "block",
             }
-        
-        style_table={'height': '460px', 'overflowX': 'auto', 'overflowY': 'auto'}
+                
         return data, columns, style_table, style
-        
+
 
 @app.callback(
     Output('data_table', 'selected_columns'),
     Input('data_table', 'columns')
 )
-def select_all_columns(columns):
+def update_columns_for_DataTable(columns):
     # Select all column IDs
     selected_columns = [col['id'] for col in columns]
     return selected_columns
 
+
+###################  Update Variables For Models  ##################################################
 
 @app.callback([Output('xvar', 'options'),
                Output('xvar', 'value'),
@@ -3085,11 +5502,13 @@ def select_all_columns(columns):
                Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars1(df, selected_cols, cat_vars):
+def update_variables_for_iterative_multimodel_ols(df, selected_cols, cat_vars):
     try:
         df = pd.DataFrame(df)
         if df is None or df.empty:
-            return [{"label": 'Nothing loaded', "value": 'Nothing loaded'}], ['Nothing loaded'], [{"label": 'Nothing loaded', "value": 'Nothing loaded'}], ['Nothing loaded']
+            return [[{"label": 'Nothing loaded', "value": 'Nothing loaded'}], 
+                    ['Nothing loaded'], [{"label": 'Nothing loaded', "value": 'Nothing loaded'}], 
+                    ['Nothing loaded']]
         
         for l in cat_vars:
             try:
@@ -3115,8 +5534,9 @@ def update_select_vars1(df, selected_cols, cat_vars):
         return options, ls1, options, ls2
     
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded']
-
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded']]
 
 
 @app.callback([Output('xvar2', 'options'),
@@ -3129,18 +5549,22 @@ def update_select_vars1(df, selected_cols, cat_vars):
                Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars2(df, selected_cols, cat_vars):
+def update_select_variables_for_in_depth_single_OLS(df, selected_cols, cat_vars):
     optionHeight = 30
     try:
         df = pd.DataFrame(df)
         if df is None or df.empty:
-            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+            return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight, 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight]
         
         for l in cat_vars:
             try:
                 df.drop(labels=[l], axis=1, inplace=True)
             except:
                 pass
+            
         df = df.filter(items=selected_cols, axis=1)
         
         drop_vars = []
@@ -3174,7 +5598,10 @@ def update_select_vars2(df, selected_cols, cat_vars):
         return options, ls, optionHeight, options, ls, optionHeight
     
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight, 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight]
         
 
 @app.callback([Output('xvar2_quant', 'options'),
@@ -3187,12 +5614,15 @@ def update_select_vars2(df, selected_cols, cat_vars):
                Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars2_quant(df, selected_cols, cat_vars):
+def update_variables_for_quantile_regression(df, selected_cols, cat_vars):
     optionHeight = 30
     try:
         df = pd.DataFrame(df)
         if df is None or df.empty:
-            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+            return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight, 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight]
         
         for l in cat_vars:
             try:
@@ -3232,8 +5662,11 @@ def update_select_vars2_quant(df, selected_cols, cat_vars):
         return options, ls, optionHeight, options, ls, optionHeight
     
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight, [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
-    
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight, 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight]
+
 
 @app.callback([Output('xvar3', 'options'),
                Output('xvar3', 'value'),
@@ -3244,23 +5677,25 @@ def update_select_vars2_quant(df, selected_cols, cat_vars):
                Input('data_table', 'selected_columns'),
                Input('cat_vars', 'children')],
             )
-def update_select_vars3(df, selected_cols, cat_vars):
-    # variables for multiple linear regression 
+def update_variables_for_multiple_linear_regression(df, selected_cols, cat_vars):
     optionHeight = 30
     try:
         df = pd.DataFrame(df)
         if df is None or df.empty:
-            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+            return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight]
+        
+        df = df.filter(items=selected_cols, axis=1)
+        ls1 = sorted(list(set(list(df))))
+        options1 = [{"label": i, "value": i} for i in ls1]
         
         for l in cat_vars:
             try:
                 df.drop(labels=[l], axis=1, inplace=True)
             except:
                 pass
-        df = df.filter(items=selected_cols, axis=1)
-        
-        ls1 = sorted(list(set(list(df))))
-        options1 = [{"label": i, "value": i} for i in ls1]
         
         drop_vars = []
         for f in list(df):
@@ -3292,8 +5727,76 @@ def update_select_vars3(df, selected_cols, cat_vars):
         return options1, ls1, options2, ls2, optionHeight
         
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight]
+
+
+@app.callback([Output('glm_predictors', 'options'),
+               Output('glm_predictors', 'value'),
+               Output('glm_response_var', 'options'),
+               Output('glm_response_var', 'value'),
+               Output('glm_response_var', 'optionHeight')],
+              [Input('data_table', 'data'),
+               Input('data_table', 'selected_columns'),
+               Input('cat_vars', 'children')],
+            )
+def update_variables_for_glm(df, selected_cols, cat_vars):
+    optionHeight = 30
+    try:
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight]
         
+        df = df.filter(items=selected_cols, axis=1)
+        ls1 = sorted(list(set(list(df))))
+        options1 = [{"label": i, "value": i} for i in ls1]
+        
+        for l in cat_vars:
+            try:
+                df.drop(labels=[l], axis=1, inplace=True)
+            except:
+                pass
+        
+        drop_vars = []
+        for f in list(df):
+            if len(df[f].unique()) < 4:
+                drop_vars.append(f)
+        df.drop(labels=drop_vars, axis=1, inplace=True)
+        
+        ls2 = sorted(list(set(list(df))))
+        lens = []
+        for l in ls2:
+            lens.append(len(l))
+        maxl = max(lens)
+        print('maxl:', maxl)
+        
+        if maxl < 40:
+            optionHeight = 50
+        elif maxl < 50:
+            optionHeight = 60
+        elif maxl < 60:
+            optionHeight = 70
+        elif maxl < 80:
+            optionHeight = 80
+        elif maxl < 100:
+            optionHeight = 100
+        else:
+            optionHeight = 120
+        options2 = [{"label": i, "value": i} for i in ls2]
+        
+        return options1, ls1, options2, ls2, optionHeight
+        
+    except:
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight]
+
         
 @app.callback([Output('xvar_logistic', 'options'),
                 Output('xvar_logistic', 'value'),
@@ -3305,13 +5808,15 @@ def update_select_vars3(df, selected_cols, cat_vars):
                 Input('cat_vars', 'children'),
                 Input('di_numerical_vars', 'children')],
             )
-def update_select_vars4(df, selected_cols, cat_vars, di_num_vars):
-    # variables for multiple logistic regression 
+def update_variables_for_logistic_regression(df, selected_cols, cat_vars, di_num_vars):
     optionHeight = 30
     try:
         df = pd.DataFrame(df)
         if df is None or df.empty:
-            return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+            return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight]
         
         df = df.filter(items=selected_cols, axis=1)
         tdf = df.copy(deep=True)
@@ -3347,8 +5852,91 @@ def update_select_vars4(df, selected_cols, cat_vars, di_num_vars):
         return options1, ls1, options2, ls2, optionHeight
 
     except:
-        return [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], ['Nothing uploaded'], optionHeight
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight]
   
+
+@app.callback([Output('cox_predictors', 'options'),
+               Output('cox_predictors', 'value'),
+               Output('cox_partial', 'options'),
+               Output('cox_partial', 'value'),
+               Output('cox_partial', 'optionHeight'),
+               Output('cox_d_var', 'options'),
+               Output('cox_d_var', 'value'),
+               Output('cox_d_var', 'optionHeight'),
+               Output('cox_e_var', 'options'),
+               Output('cox_e_var', 'value'),
+               Output('cox_e_var', 'optionHeight')],
+              [Input('data_table', 'data'),
+               Input('data_table', 'selected_columns'),
+               Input('cat_vars', 'children')],
+            )
+def update_variables_for_cox_regression(df, selected_cols, cat_vars):
+    optionHeight = 30
+    try:
+        df = pd.DataFrame(df)
+        if df is None or df.empty:
+            return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight, 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight, 
+                    [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                    ['Nothing uploaded'], optionHeight]
+        
+        df = df.filter(items=selected_cols, axis=1)
+        ls1 = sorted(list(set(list(df))))
+        options1 = [{"label": i, "value": i} for i in ls1]
+        
+        for l in cat_vars:
+            try:
+                df.drop(labels=[l], axis=1, inplace=True)
+            except:
+                pass
+        
+        drop_vars = []
+        for f in list(df):
+            if len(df[f].unique()) < 4:
+                drop_vars.append(f)
+        df.drop(labels=drop_vars, axis=1, inplace=True)
+        
+        ls2 = sorted(list(set(list(df))))
+        lens = []
+        for l in ls2:
+            lens.append(len(l))
+        maxl = max(lens)
+        print('maxl:', maxl)
+        
+        if maxl < 40:
+            optionHeight = 50
+        elif maxl < 50:
+            optionHeight = 60
+        elif maxl < 60:
+            optionHeight = 70
+        elif maxl < 80:
+            optionHeight = 80
+        elif maxl < 100:
+            optionHeight = 100
+        else:
+            optionHeight = 120
+        options2 = [{"label": i, "value": i} for i in ls2]
+        
+        return [options1, ls1, options2, ls2, optionHeight, options1, 
+                ls1, optionHeight, options1, ls1, optionHeight]
+        
+    except:
+        return [[{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight, 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight, 
+                [{"label": 'Nothing uploaded', "value": 'Nothing uploaded'}], 
+                ['Nothing uploaded'], optionHeight]
+    
+
+######################      Update Models      #####################################################
 
 
 @app.callback([Output('figure_plot1', 'figure'),
@@ -3368,7 +5956,8 @@ def update_select_vars4(df, selected_cols, cat_vars, di_num_vars):
                 State('xvar', 'value'),
                 State('yvar', 'value')],
             )
-def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartscale, robust, df, cat_vars, xvars, yvars):
+def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartscale, 
+                              robust, df, cat_vars, xvars, yvars):
     
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
@@ -3378,7 +5967,8 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
         return {}, {}, "", "", ""
     
     elif len(xvars) == 1 and len(yvars) == 1 and xvars[0] == yvars[0]:
-        return {}, {}, "Error: Your predictor variable and response variable cannot be the same.", "", ""
+        return [{}, {}, "Error: Your predictor variable and response variable cannot be the same.",
+                "", ""]
     
     else:
         df = pd.DataFrame(df)
@@ -3391,7 +5981,9 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
         df = df.filter(items=vars_, axis=1)
         
         if df.shape[0] == 0:
-            return {}, {}, "Error: There are no rows in the data because of the variables you chose.", "", ""
+            return [{}, {}, 
+                    "Error: There are no rows in the data because of the variables you chose.",
+                    "", ""]
             
         else:
             
@@ -3404,10 +5996,8 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
             r2s = []
             adj_r2s = []
             obs_pred_r2s = []
-            #slopes = []
             intercepts = []
             pvals = []
-            #rvals = []
             bics = []
             aics = []
             ns = []
@@ -3422,7 +6012,6 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
             
             durbin_watson = []
             breusch_pagan = []
-            #shapiro_wilk = []
             jarque_bera = []
             harvey_collier = []
             
@@ -3509,12 +6098,15 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                             # Add a constant for the intercept
                             
                             if d == 1:
-                                X_poly = sm.add_constant(x) # For a 1st-degree
+                                # For a 1st-degree
+                                X_poly = sm.add_constant(x) 
                             elif d == 2:
-                                X_poly = np.column_stack((x, x**2))  # For a 2nd-degree polynomial (X, X^2)
+                                # For a 2nd-degree polynomial (X, X^2)
+                                X_poly = np.column_stack((x, x**2))  
                                 X_poly = sm.add_constant(X_poly)
                             elif d == 3:
-                                X_poly = np.column_stack((x, x**2, x**3))  # For a 3rd-degree polynomial (X, X^2, X^3)
+                                # For a 3rd-degree polynomial (X, X^2, X^3)
+                                X_poly = np.column_stack((x, x**2, x**3))  
                                 X_poly = sm.add_constant(X_poly)
                             
                             # Fit a robust polynomial regression model
@@ -3550,7 +6142,8 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                         if d == 1:
                             try:
                                 skip = 10 #len(model.params)  # bug in linear_harvey_collier
-                                rr = sms.recursive_olsresiduals(model, skip=skip, alpha=0.95, order_by=None)
+                                rr = sms.recursive_olsresiduals(model, skip=skip, 
+                                                                alpha=0.95, order_by=None)
                                 hc_test = stats.ttest_1samp(rr[3][skip:], 0)
                                 hc_p = round(hc_test[1], 4)
                             except:
@@ -3558,9 +6151,8 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                         
                         else:
                             hc_p = 'N/A'
+                        
                         harvey_collier.append(hc_p)
-                        
-                        
                         intercepts.append(model.params[0])
                         coefs.append(model.params[1:])
                         
@@ -3643,7 +6235,8 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                         PredY.append(ypred)
             
             del df
-            cols = ['y-variable', 'x-variable', 'Model', 'r-square', 'adj. r-square', 'obs vs. pred r-square', 'p-value', 'intercept', 'coefficients', 'AIC', 
+            cols = ['y-variable', 'x-variable', 'Model', 'r-square', 'adj. r-square', 
+                    'obs vs. pred r-square', 'p-value', 'intercept', 'coefficients', 'AIC', 
                     'BIC', 'log-likelihood', 'Durbin-Watson', 'Jarque-Bera (p-value)', 
                     'Breusch-Pagan (p-value)', 'Harvey-Collier (p-value)']
             
@@ -3675,7 +6268,10 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
             ###################### Figure ########################
             
             fig_data = []
-            df_models['label'] = df_models['y-variable (short)'] + '<br>' + '      vs.' + '<br>' + df_models['x-variable (short)']
+            
+            df_models['label'] = df_models['y-variable (short)'] + '<br>' + '      vs.'
+            df_models['label'] = df_models['label'] + '<br>' + df_models['x-variable (short)']
+            
             tdf = df_models[df_models['Model'] == 'cubic']
             tdf.sort_values(by='r-square', inplace=True, ascending=False)
             tdf = tdf.head(10)
@@ -3752,8 +6348,6 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                                 size = 18,
                             ),
                         ),
-                        #rangemode="tozero",
-                        #zeroline=True,
                         showticklabels = True,
                     ),
                                 
@@ -3767,8 +6361,6 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                                         
                             ),
                         ),
-                        #rangemode="tozero",
-                        #zeroline=True,
                         showticklabels = True,
                     ),
                                 
@@ -3786,12 +6378,12 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
             df_models = df_models[df_models['x-variable'].isin(xvars)]
             df_models = df_models[df_models['y-variable'].isin(yvars)]
             
-            cols = ['y-variable', 'x-variable', 'sample size', 'Model', 'r-square', 'adj. r-square', 'obs vs. pred r-square',
-                    'p-value', 'AIC', 'BIC', 'log-likelihood', 'Durbin-Watson', 'Jarque-Bera (p-value)', 
-                    'Breusch-Pagan (p-value)', 'Harvey-Collier (p-value)', 'equation']
+            cols = ['y-variable', 'x-variable', 'sample size', 'Model', 'r-square', 'adj. r-square',
+                    'obs vs. pred r-square', 'p-value', 'AIC', 'BIC', 'log-likelihood', 
+                    'Durbin-Watson', 'Jarque-Bera (p-value)', 'Breusch-Pagan (p-value)', 
+                    'Harvey-Collier (p-value)', 'equation']
             
             df_table = df_models.filter(items=cols)
-            
             df_table.sort_values(by='adj. r-square', inplace=True, ascending=False)
             
             dashT = dash_table.DataTable(
@@ -3816,25 +6408,29 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
             )
     
             del df_models
-            #del df_table
             
-            txt1 = "This figure displays up to 10 pairs of features sharing the strongest linear and curvilinear (polynomial) relationships. "
+            txt1 = "This figure displays up to 10 pairs of features sharing the strongest linear "
+            txt1 += "and curvilinear (polynomial) relationships. "
             txt1 += "Polynomial regression is useful when relationships are noticeably curved. "
             txt1 += "Quadratic models account for one curve and cubic models account for two. "
-            txt1 += "When interpreting performance, consider whether or not a curvier model produces meaningfully greater r\u00B2"
+            txt1 += "When interpreting performance, consider whether or not a curvier model "
+            txt1 += "produces meaningfully greater r\u00B2"
 
-            txt2 = "The Durbin-Watson statistic ranges between 0 and 4. The closer it is to 2, the more independent the observations. "
+            txt2 = "The Durbin-Watson statistic ranges between 0 and 4. The closer it is to 2, "
+            txt2 += "the more independent the observations. "
             txt2 += "Significant Jarque-Bera tests (p < 0.05) indicate non-normality. "
             txt2 += "Significant Breusch-Pagan tests (p < 0.05) indicate heteroskedasticity. "
             txt2 += "Significant Harvey-Collier test (p < 0.05) indicate non-linearity. "
             
             if robust == 1:
-                txt2 += "\nNote, outputs of robust regression do not include AIC, BIC, log-likelihood, or p-values from an F-test, or typical r-square and adjusted r-square values. Instead, r-square values for robust regression are based on observed vs predicted, i.e., a linear regression between observed and predicted values with the slope constrained to 1 and the intercept constrained to 0."
+                txt2 += "\nNote, outputs of robust regression do not include AIC, BIC, "
+                txt2 += "log-likelihood, or p-values from an F-test, or typical r-square and "
+                txt2 += "adjusted r-square values. Instead, r-square values for robust regression "
+                txt2 += "are based on observed vs predicted, i.e., a linear regression between "
+                txt2 += "observed and predicted values with the slope constrained to 1 and the "
+                txt2 += "intercept constrained to 0."
             
-            #txt2 += "Failing these tests may indicate that a particular analysis has  is not ipso facto fatal." #The Harvey-Collier test is often questionable."
             return figure, dashT, "", txt1, txt2
-            
-    
 
     
 @app.callback([Output('figure_plot2', 'figure'),
@@ -3857,7 +6453,8 @@ def update_simple_regressions(contents1, contents2, contents3, n_clicks, smartsc
                  State('model2', 'value'),
                  State('data_table', 'data')],
             )
-def update_single_regression(contents1, content2, contents3, n_clicks, robust, xvar, yvar, x_transform, y_transform, model, df):
+def update_single_regression(contents1, content2, contents3, n_clicks, robust, 
+                             xvar, yvar, x_transform, y_transform, model, df):
         
     cols = ['Model information', 'Model statistics']
     df_table1 = pd.DataFrame(columns=cols)
@@ -4044,9 +6641,11 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
             x = x_o[:, np.newaxis]
             y = y_o[:, np.newaxis]
 
-            inds = x.ravel().argsort()  # Sort x values and get index
+            # Sort x values and get index
+            inds = x.ravel().argsort()  
             x = x.ravel()[inds].reshape(-1, 1)
-            y = y[inds] #Sort y according to x sorted index
+            #Sort y according to x sorted index
+            y = y[inds]
                 
             polynomial_features = PolynomialFeatures(degree = d)
             xp = polynomial_features.fit_transform(x)
@@ -4068,12 +6667,15 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
             # Add a constant for the intercept
                 
             if d == 1:
-                X_poly = sm.add_constant(x) # For a 1st-degree
+                # For a 1st-degree
+                X_poly = sm.add_constant(x) 
             elif d == 2:
-                X_poly = np.column_stack((x, x**2))  # For a 2nd-degree polynomial (X, X^2)
+                # For a 2nd-degree polynomial (X, X^2)
+                X_poly = np.column_stack((x, x**2))  
                 X_poly = sm.add_constant(X_poly)
             elif d == 3:
-                X_poly = np.column_stack((x, x**2, x**3))  # For a 3rd-degree polynomial (X, X^2, X^3)
+                # For a 3rd-degree polynomial (X, X^2, X^3)
+                X_poly = np.column_stack((x, x**2, x**3))  
                 X_poly = sm.add_constant(X_poly)
                 
             # Fit a robust polynomial regression model
@@ -4158,24 +6760,24 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
         if robust == 0:
             r2 = round(model.rsquared, 4)
             r2_adj = round(model.rsquared_adj, 4)
-            aic = round(model.aic, 4)
-            bic = round(model.bic, 4)
-            fp = round(model.f_pvalue, 4)
-            llf = round(model.llf, 4)
+            #aic = round(model.aic, 4)
+            #bic = round(model.bic, 4)
+            #fp = round(model.f_pvalue, 4)
+            #llf = round(model.llf, 4)
             
             st, data, ss2 = summary_table(model, alpha=0.05)
-            fittedvalues = data[:, 2]
-            predict_mean_se  = data[:, 3]
+            #fittedvalues = data[:, 2]
+            #predict_mean_se  = data[:, 3]
             predict_mean_ci_low, predict_mean_ci_upp = data[:, 4:6].T # confidence interval
             predict_ci_low, predict_ci_upp = data[:, 6:8].T # prediction interval
             
         elif robust == 1:
             r2 = 'N/A'
             r2_adj = 'N/A'
-            aic = 'N/A'
-            bic = 'N/A'
-            fp = 'N/A'
-            llf = 'N/A'
+            #aic = 'N/A'
+            #bic = 'N/A'
+            #fp = 'N/A'
+            #llf = 'N/A'
         
             # Calculate the standard error of residuals
             residuals = model.resid
@@ -4206,7 +6808,8 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                     x_poly = [1, x, x**2, x**3]
                     
                 # Confidence Intervals
-                ci_multiplier = t_value * np.sqrt(np.dot(x_poly, np.dot(model.cov_params(), x_poly)))
+                ci_multiplier = t_value * np.sqrt(np.dot(x_poly, 
+                                                         np.dot(model.cov_params(), x_poly)))
                 ci_interval = ci_multiplier
                 lower_ci_limit[i] = model.predict(exog=x_poly) - ci_interval
                 upper_ci_limit[i] = model.predict(exog=x_poly) + ci_interval
@@ -4271,7 +6874,8 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                 mode = "lines",
                 name = 'r<sup>2</sup> (fitted) =' + str(r2) + '<br>r<sup>2</sup> (adjusted) =' + str(r2_adj) + '<br>r<sup>2</sup> (obs vs pred) =' + obs_pred_r2,
                 opacity = 0.75,
-                line = dict(color = clr, width = 2),
+                line = dict(color = clr, 
+                            width = 2),
                 )
             )
             
@@ -4282,7 +6886,9 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                 mode = "lines",
                 name = 'upper 95 CI',
                 opacity = 0.75,
-                line = dict(color = clr, width = 2, dash='dash'),
+                line = dict(color = clr, 
+                            width = 2, 
+                            dash='dash'),
             )
         )
             
@@ -4293,7 +6899,9 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                 mode = "lines",
                 name = 'lower 95 CI',
                 opacity = 0.75,
-                line = dict(color = clr, width = 2, dash='dash'),
+                line = dict(color = clr, 
+                            width = 2, 
+                            dash='dash'),
             )
         )
             
@@ -4304,7 +6912,9 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                 mode = "lines",
                 name = 'upper 95 PI',
                 opacity = 0.75,
-                line = dict(color = clr, width = 2, dash='dot'),
+                line = dict(color = clr, 
+                            width = 2, 
+                            dash='dot'),
             )
         )
             
@@ -4315,7 +6925,9 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                 mode = "lines",
                 name = 'lower 95 PI',
                 opacity = 0.75,
-                line = dict(color = clr, width = 2, dash='dot'),
+                line = dict(color = clr, 
+                            width = 2, 
+                            dash='dot'),
             )
         )
               
@@ -4331,8 +6943,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                             size = 18,
                         ),
                     ),
-                    #rangemode="tozero",
-                    #zeroline=True,
                     showticklabels = True,
                 ),
                                 
@@ -4346,8 +6956,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                             
                         ),
                     ),
-                    #rangemode="tozero",
-                    #zeroline=True,
                     showticklabels = True,
                 ),
                 
@@ -4394,8 +7002,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
         fig_data2.append(go.Scatter(
             x = x_o,
             y = model.resid,
-            #x = nonoutlier_x,
-            #y = nonoutlier_y,
             name = 'residuals',
             mode = "markers",
             opacity = 0.75,
@@ -4416,8 +7022,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                             size = 18,
                         ),
                     ),
-                    #rangemode="tozero",
-                    #zeroline=True,
                     showticklabels = True,
                 ),
                                 
@@ -4431,8 +7035,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                             
                         ),
                     ),
-                    #rangemode="tozero",
-                    #zeroline=True,
                     showticklabels = True,
                 ),
                 
@@ -4463,10 +7065,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
             data=df3.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df3.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '250px', 
                          'overflowY': 'auto',
@@ -4489,10 +7087,6 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
             data=df2_summary.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df2_summary.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '200px', 
                          'overflowY': 'auto',
@@ -4509,8 +7103,7 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
         return figure, "", txt, res_figure, 0, "", dashT1, dashT2
 
 
-
-@app.callback([Output('figure_plot2_quant', 'figure'),
+@app.callback([Output('figure_quantile_regression', 'figure'),
                 Output('rt3_quant', 'children'),
                 Output('quant_table_txt', 'children'),
                 Output('quant_table_5', 'children'),
@@ -4532,7 +7125,8 @@ def update_single_regression(contents1, content2, contents3, n_clicks, robust, x
                  State('data_table', 'data'),
                  State('quantiles', 'value')],
             )
-def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, yvar, x_transform, y_transform, model, df, quantiles):
+def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
+                               yvar, x_transform, y_transform, model, df, quantiles):
         
     cols = ['Model information', 'Model statistics']
     df_table1 = pd.DataFrame(columns=cols)
@@ -4599,21 +7193,25 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
     if df is None or xvar is None or yvar is None or xvar == yvar or isinstance(yvar, list) is True or isinstance(yvar, list) is True:
             
         if df is None:
-            return {}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+            return [{}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2]
             
         elif (isinstance(xvar, list) is True or xvar is None) & (isinstance(yvar, list) is True or yvar is None):
-            return {}, "Error: You need to select some variables.", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+            return [{}, "Error: You need to select some variables.", "", 
+                    dashT1, dashT2, dashT1, dashT2, dashT1, dashT2]
             
         elif isinstance(yvar, list) is True or yvar is None:
-            return {}, "Error: You need to select a response variable.", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+            return [{}, "Error: You need to select a response variable.", "", 
+                    dashT1, dashT2, dashT1, dashT2, dashT1, dashT2]
             
         elif isinstance(xvar, list) is True or xvar is None:
-            return {}, "Error: You need to select an predictor variable.", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+            return [{}, "Error: You need to select an predictor variable.", "", 
+                    dashT1, dashT2, dashT1, dashT2, dashT1, dashT2]
             
         elif xvar == yvar and xvar is not None:
-            return {}, "Error: Your predictor variable and response variable are the same. Ensure they are different.", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+            return [{}, "Error: Your predictor variable and response variable are the same. Ensure they are different.",
+                    "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2]
         else:
-            return {}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2
+            return [{}, "", "", dashT1, dashT2, dashT1, dashT2, dashT1, dashT2]
             
     else:
         df = pd.DataFrame(df)
@@ -4709,15 +7307,15 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
         quantiles = [0.01*ql, 0.5, 0.01*qh]
 
         formula = int()
-        degree = int()
+        #degree = int()
         if model == 'linear': 
             formula = 'y ~ 1 + x'
-            degree = 1
+            #degree = 1
         elif model == 'quadratic': 
-            degree = 2
+            #degree = 2
             formula = 'y ~ 1 + x + I(x ** 2.0)'
         elif model == 'cubic': 
-            degree = 3
+            #degree = 3
             formula = 'y ~ 1 + x + I(x ** 3.0) + I(x ** 2.0)'
             
         #########################################################################################
@@ -4737,11 +7335,11 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
         #res_ols = smf.ols(formula, df).fit()
         
         x_p = np.array(x)
-        df_p = pd.DataFrame({'x': x_p})
+        #df_p = pd.DataFrame({'x': x_p})
         
         y_lo = res_all[0].fittedvalues
-        y_lo_resid = res_all[0].resid
-        obs_lo = y_lo - y_lo_resid
+        #y_lo_resid = res_all[0].resid
+        #obs_lo = y_lo - y_lo_resid
         pr2_lo = str(np.round(res_all[0].prsquared, 3))
         
         y_50 = res_all[1].fittedvalues
@@ -4751,8 +7349,8 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
         r2_50 = str(np.round(obs_pred_rsquare(obs_50, y_50), 3))
         
         y_hi = res_all[2].fittedvalues
-        y_hi_resid = res_all[2].resid
-        obs_hi = y_hi - y_hi_resid
+        #y_hi_resid = res_all[2].resid
+        #obs_hi = y_hi - y_hi_resid
         pr2_hi = str(np.round(res_all[2].prsquared, 3))
         
         #y_ols_predicted = res_ols.predict(df_p)
@@ -4849,10 +7447,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
             data=df3.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df3.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '250px', 
                          'overflowY': 'auto',
@@ -4866,7 +7460,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
                         },
         )
         
-        
         results_as_html2 = results_summary.tables[1].as_html()
         df2_summary = pd.read_html(results_as_html2, header=0)[0]
         df2_summary.rename(columns={"Unnamed: 0": "Parameter"}, inplace=True)
@@ -4875,10 +7468,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
             data=df2_summary.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df2_summary.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '200px', 
                          'overflowY': 'auto',
@@ -4891,8 +7480,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
                         'textAlign': 'center',
                         },
         )
-        
-        
         
         ######################################### 50th quantile ###################################
         results_summary = res_all[1].summary()
@@ -4912,10 +7499,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
             data=df3.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df3.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '250px', 
                          'overflowY': 'auto',
@@ -4929,7 +7512,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
                         },
         )
         
-        
         results_as_html2 = results_summary.tables[1].as_html()
         df2_summary = pd.read_html(results_as_html2, header=0)[0]
         df2_summary.rename(columns={"Unnamed: 0": "Parameter"}, inplace=True)
@@ -4938,10 +7520,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
             data=df2_summary.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df2_summary.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '200px', 
                          'overflowY': 'auto',
@@ -4974,10 +7552,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
             data=df3.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df3.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '250px', 
                          'overflowY': 'auto',
@@ -5000,10 +7574,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
             data=df2_summary.to_dict('records'),
             columns=[{'id': c, 'name': c} for c in df2_summary.columns],
             export_format="csv",
-            #page_action='none',
-            #sort_action="native",
-            #sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '200px', 
                          'overflowY': 'auto',
@@ -5030,8 +7600,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
                             size = 18,
                         ),
                     ),
-                    #rangemode="tozero",
-                    #zeroline=True,
                     showticklabels = True,
                 ),
                                 
@@ -5045,8 +7613,6 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
                             
                         ),
                     ),
-                    #rangemode="tozero",
-                    #zeroline=True,
                     showticklabels = True,
                 ),
                                 
@@ -5087,17 +7653,12 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
         '''
             
         return figure, "", txt, dashT1, dashT2, dashT3, dashT4, dashT5, dashT6
-        
-        
-        
-        
-        
-        
-@app.callback([Output('figure_plot3', 'figure'),
+
+
+@app.callback([Output('figure_multiple_linear_regression', 'figure'),
                Output('table_plot3a', 'children'),
                Output('table_plot3b', 'children'),
                Output('rt1', 'children'),
-               Output('placeholder5', 'children'),
                Output('fig3txt', 'children'),
                Output('tab3btxt', 'children'),
                Output('btn_ss2', 'n_clicks')],
@@ -5112,7 +7673,8 @@ def update_quantile_regression(contents1, contents2, contents3, n_clicks, xvar, 
                State('cat_vars', 'children'),
                State('rfecv', 'value')],
         )
-def update_multiple_regression(contents1, contents2, contents3, n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val):
+def update_multiple_regression(contents1, contents2, contents3, n_clicks, smartscale, xvars, 
+                               yvar, df, cat_vars, rfe_val):
     
                         
     cols = ['Model information', 'Model statistics']
@@ -5176,48 +7738,50 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
     if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
-        return {}, dashT1, dashT2, "", [0], "", "", 0
+        return {}, dashT1, dashT2, "", "", "", 0
     
     if df is None:
-        return {}, dashT1, dashT2, "", [0], "", "", 0
+        return {}, dashT1, dashT2, "", "", "", 0
     
     elif yvar is None and xvars is None:
-        return {}, dashT1, dashT2, "", [0], "", "", 0
+        return {}, dashT1, dashT2, "", "", "", 0
     
     elif xvars is None or len(xvars) < 2:
-        return {}, dashT1, dashT2, "Error: Select two or more predictors", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Select two or more predictors", "", "", 0
         
     elif yvar is None:
-        return {}, dashT1, dashT2, "Error: Select a reponse variable", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Select a reponse variable", "", "", 0
     
     elif (isinstance(yvar, list) is True) & (xvars is None or len(xvars) < 2):
-        return {}, dashT1, dashT2, "Error: Select a response variable and 2 or more predictors", [0], "", "", 0
+        return [{}, dashT1, dashT2, "Error: Select a response variable and 2 or more predictors", 
+                "", 0]
     
     elif isinstance(yvar, list) is True:
-        return {}, dashT1, dashT2, "Error: Select a response variable", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Select a response variable", "", "", 0
     
     elif xvars is None or len(xvars) < 2:
-        return {}, dashT1, dashT2, "Error: Select two or more predictors", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Select two or more predictors", "", "", 0
     
     df = pd.DataFrame(df)
     if df.empty:
-        return {}, dashT1, dashT2, "", [0], "", "", 0
+        return {}, dashT1, dashT2, "", "", "", 0
     
     if yvar not in list(df):
-        return {}, dashT1, dashT2, "Error: Choose a response variable", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Choose a response variable", "", "", 0
         
     if yvar in xvars:
         xvars.remove(yvar)
         if len(xvars) == 0:
-            return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors. You chose one and it's the same as your response variable", [0], "", "", 0
+            return [{}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors. You chose one and it's the same as your response variable", "", "", 0]
+        
         elif len(xvars) == 1:
-            return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors. You chose two but one is the same as your response variable", [0], "", "", 0
+            return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors. You chose two but one is the same as your response variable", "", "", 0
     
     if len(xvars) < 2 and yvar is None:
-        return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors and one response variable.", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors and one response variable.", "", "", 0
         
     elif len(xvars) < 2:
-        return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors.", [0], "", "", 0
+        return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors.", "", "", 0
                         
     else:
         
@@ -5232,11 +7796,12 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
         #df.dropna(how='any', inplace=True)
                             
         #Conduct multiple regression
-        y_train, y_pred, df1_summary, df2_summary, supported_features, unsupported, colors = run_MLR(df, xvars, yvar, cat_vars, rfe_val)
+        ls = run_MLR(df, xvars, yvar, cat_vars, rfe_val)
+        y_train, y_pred, df1_summary, df2_summary, supported_features, unsupported, colors = ls 
         
         if len(y_train) == 0:
             rt1 = "Error: Your regression could not run. Your y-values contain no data."
-            return {}, dashT1, dashT2, rt1, [0], "", "", 0
+            return {}, dashT1, dashT2, rt1, "", "", 0
         
         r2_obs_pred = obs_pred_rsquare(y_train, y_pred)
         r2_obs_pred = round(r2_obs_pred,2)
@@ -5262,29 +7827,59 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
         miny = min([min(y_train), min(y_pred)])
         maxy = max([max(y_train), max(y_pred)])
         
-        fig_data.append(go.Scatter(x = y_pred_nonoutliers, y = y_train_nonoutliers, name = 'Obs vs Pred',
-                mode = "markers", opacity = 0.75, marker = dict(size=10, color="#3399ff")))
+        fig_data.append(go.Scatter(x = y_pred_nonoutliers, 
+                                   y = y_train_nonoutliers, 
+                                   name = 'Obs vs Pred',
+                                   mode = "markers", 
+                                   opacity = 0.75, 
+                                   marker = dict(size=10, 
+                                                 color="#3399ff",
+                                                 ),
+                                   ),
+                        )
         
         #fig_data.append(go.Scatter(x = y_pred_outliers, y = y_train_outliers, name = 'Outliers',
         #        mode = "markers", opacity = 0.75, marker = dict(size=10, color="#ff0000")))
         
-        fig_data.append(go.Scatter(x = [miny, maxy], y = [miny, maxy], name = '1:1, r<sup>2</sup> = ' + str(r2_obs_pred),
-            mode = "lines", opacity = 0.75, line = dict(color = "#595959", width = 1, dash='dash'),))
+        fig_data.append(go.Scatter(x = [miny, maxy], 
+                                   y = [miny, maxy], 
+                                   name = '1:1, r<sup>2</sup> = ' + str(r2_obs_pred),
+                                   mode = "lines", 
+                                   opacity = 0.75, 
+                                   line = dict(color = "#595959", 
+                                               width = 1, 
+                                               dash='dash',
+                                               ),
+                                   ),
+                        )
                             
         figure = go.Figure(data = fig_data,
             layout = go.Layout(
                 xaxis = dict(title = dict(
                         text = "<b>" + 'Predicted:  ' + yvar + "</b>",
                         font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
-                            " Helvetica, Arial, sans-serif", size = 18,),), showticklabels = True,),
+                            " Helvetica, Arial, sans-serif", 
+                            size = 18,
+                            ),
+                        ), 
+                    showticklabels = True,
+                    ),
                                             
                 yaxis = dict(title = dict(
                         text = "<b>" + 'Observed:  ' + yvar + "</b>",
                         font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
-                            " Helvetica, Arial, sans-serif",size = 18,),),showticklabels = True,),
+                            " Helvetica, Arial, sans-serif",
+                            size = 18,
+                            ),
+                        ),
+                    showticklabels = True,
+                    ),
                                             
-                margin = dict(l=60, r=30, b=10, t=40), showlegend = True, height = 400,
-                paper_bgcolor = "rgb(245, 247, 249)", plot_bgcolor = "rgb(245, 247, 249)",
+                margin = dict(l=60, r=30, b=10, t=40), 
+                showlegend = True, 
+                height = 400,
+                paper_bgcolor = "rgb(245, 247, 249)", 
+                plot_bgcolor = "rgb(245, 247, 249)",
             ),
         )
 
@@ -5310,7 +7905,6 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
         )
         
         del df
-        #del df1_summary
         
         df2_summary['index'] = df2_summary.index
         df2_summary = df2_summary.astype(str)
@@ -5347,7 +7941,6 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
             page_action='none',
             sort_action="native",
             sort_mode="multi",
-            #filter_action="native",
             
             style_table={'height': '225px', 
                          'overflowY': 'auto',
@@ -5361,20 +7954,26 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
                         },
         )
         
-        txt1 = "This plot allows you to interpret patterns in the regression model's success. Example: If points are consistently above the 1:1 line, then the observed values are always greater than the predicted values. If the relationship is curved and performance is weak, then try rescaling some of your variables (via log, square root, etc.)."
-        txt2 = "The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates that a predictor is significantly correlated with one or more other predictors. VIF > 10 indicates severe multicollinearity, which can lead to overfitting and inaccurate parameter estimates. If your VIF's are high, trying removing some of those variables."
+        txt1 = "This plot allows you to interpret patterns in the regression model's success. " 
+        txt1 += "Example: If points are consistently above the 1:1 line, then the observed "
+        txt1 += "values are always greater than the predicted values. If the relationship is "
+        txt1 += "curved and performance is weak, then try rescaling some of your variables "
+        txt1 += "(via log, square root, etc.)."
         
-        return figure, dashT2, dashT1, "", [1], txt1, txt2, 0
+        txt2 = "The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates "
+        txt2 += "that a predictor is significantly correlated with one or more other predictors. "
+        txt2 += "VIF > 10 indicates severe multicollinearity, which can lead to overfitting and "
+        txt2 += "inaccurate parameter estimates. If your VIF's are high, trying removing some "
+        txt2 += "of those variables."
+        
+        return figure, dashT2, dashT1, "", txt1, txt2, 0
 
 
-
-            
 @app.callback([Output('figure_plot4a', 'figure'),
                 Output('figure_plot4b', 'figure'),
                 Output('table_plot4a', 'children'),
                 Output('table_plot4b', 'children'),
                 Output('rt2', 'children'),
-                Output('placeholder7', 'children'),
                 Output('tab4atxt', 'children'),
                 Output('tab4btxt', 'children'),
                 Output('fig4atxt', 'children'),
@@ -5389,9 +7988,11 @@ def update_multiple_regression(contents1, contents2, contents3, n_clicks, smarts
                 [State('data_table', 'data'),
                 State('xvar_logistic', 'value'),
                 State('yvar_logistic', 'value'),
-                State('cat_vars', 'children')],
+                State('cat_vars', 'children'),
+                State('binary_classifier_model', 'value')],
             )
-def update_logistic_regression(contents1, contents2, contents3, n_clicks, smartscale, main_df, xvars, yvar, cat_vars):
+def update_logistic_regression(contents1, contents2, contents3, n_clicks, smartscale, 
+                               main_df, xvars, yvar, cat_vars, classifier_model):
     
     figure = go.Figure(data=[go.Table(
                     header=dict(values=[],
@@ -5432,9 +8033,7 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
                      'overflowY': 'auto',
                      },
         style_cell={'padding':'5px',
-                    #'minwidth':'140px',
                     'width':'160px',
-                    #'maxwidth':'140px',
                     'whiteSpace':'normal',
                     'textAlign': 'center',
                     },
@@ -5462,9 +8061,7 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
                      'overflowY': 'auto',
                      },
         style_cell={'padding':'5px',
-                    #'minwidth':'140px',
                     'width':'160px',
-                    #'maxwidth':'140px',
                     'whiteSpace':'normal',
                     'textAlign': 'center',
                     },
@@ -5473,31 +8070,37 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
+    
     if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
-        return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
+        return {}, {}, dashT1, dashT2, "", "", "", "", "", 0
     
     if main_df is None:
-        return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
+        return {}, {}, dashT1, dashT2, "", "", "", "", "", 0
     
     elif yvar is None and xvars is None:
-        return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
+        return {}, {}, dashT1, dashT2, "", "", "", "", "", 0
     
     elif xvars is None:
-        return {}, {}, dashT1, dashT2, "Error: Select one or more features for your predictors", [0], "", "", "", "", 0
+        return [{}, {}, dashT1, dashT2, 
+                "Error: Select one or more features for your predictors", "", "", "", "", 0]
         
     elif yvar is None:
-        return {}, {}, dashT1, dashT2, "Error: Select a feature for your response variable", [0], "", "", "", "", 0
+        return [{}, {}, dashT1, dashT2, 
+                "Error: Select a feature for your response variable", "", "", "", "", 0]
     
     elif (isinstance(yvar, list) is True) & (xvars is None or len(xvars) < 2):
-        return {}, {}, dashT1, dashT2, "Error: Select a feature for your response variable and 2 or more for your predictors", [0], "", "", "", "", 0
+        return [{}, {}, dashT1, dashT2, 
+                "Error: Select a feature for your response variable and 2 or more for your predictors", 
+                "", "", "", "", 0]
     
     elif isinstance(yvar, list) is True:
-        return {}, {}, dashT1, dashT2, "Error: Select a feature for your response variable", [0], "", "", "", "", 0
-    
+        return [{}, {}, dashT1, dashT2, 
+                "Error: Select a feature for your response variable", 
+                "", "", "", "", 0]
     
     main_df = pd.DataFrame(main_df)
     if main_df.empty:
-        return {}, {}, dashT1, dashT2, "", [0], "", "", "", "", 0
+        return {}, {}, dashT1, dashT2, "", "", "", "", "", 0
     
     y_prefix = str(yvar)
     if ':' in yvar:
@@ -5516,42 +8119,64 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
     main_df, dropped, cat_vars_ls = dummify_logistic(main_df, vars_, y_prefix, True)
     
     if yvar not in list(main_df):
-        return {}, {}, dashT1, dashT2, "Error: Choose a feature for your response variable", [0], "", "", "", "", 0
+        return [{}, {}, dashT1, dashT2, 
+                "Error: Choose a feature for your response variable", 
+                "", "", "", "", 0]
     
     yvals = main_df[yvar].tolist()
     unique_yvals = list(set(yvals))
     if len(unique_yvals) < 2:
-        return {}, {}, dashT1, dashT2, "Error: Your chosen response variable only contains one unique value: " + str(unique_yvals[0]), [0], "", "", "", "", 0
+        return [{}, {}, dashT1, dashT2, 
+                "Error: Your chosen response variable only contains one unique value: " + str(unique_yvals[0]), 
+                "", "", "", "", 0]
     
     #if y_prefix in xvars:
     #    xvars.remove(y_prefix)
     #    if len(xvars) == 1:
-    #        return {}, {}, dashT1, dashT2, "Error: Multiple logistic regression requires 2 or more predictors. You chose two but one of them contains your response variable.", [0], "", "", "", "", 0
+    #        return [{}, {}, dashT1, dashT2, "Error: Multiple logistic regression requires 2 or more predictors. You chose two but one of them contains your response variable.", [0], "", "", "", "", 0]
     
     y_prefix = y_prefix + ":"
     for i in list(main_df):
         if y_prefix in i and i != yvar:
             main_df.drop(labels=[i], axis=1, inplace=True)
     
-    models_df, df1_summary, df2_summary, error, pred_df = run_logistic_regression(main_df, xvars, yvar, cat_vars)
+    ls = run_logistic_regression(main_df, xvars, yvar, cat_vars, classifier_model)
+    models_df, df1_summary, df2_summary, error, pred_df = ls
     
     if error == 1 and smartscale == 1:
-        error = "Error: The model exceeded the maximum iterations in trying to find a fit. Try running w/out Smart Scale. You might also have one or more severely redundant (multicollinear) predictors included. Try removing one or more potentially problematic predictors. Tip: Eliminate redundant predictors, predictors of little-to-no interest, or categorical variables with many levels, e.g., a column of diagnosis codes may have hundreds of different codes."
-        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+        error = "Error: The model exceeded the maximum iterations in trying to find a fit. "
+        error += "Try running w/out Smart Scale. You might also have one or more severely "
+        error += "redundant (multicollinear) predictors included. Try removing one or more "
+        error += "potentially problematic predictors. Tip: Eliminate redundant predictors, "
+        error += "predictors of little-to-no interest, or categorical variables with many levels, "
+        error += "e.g., a column of diagnosis codes may have hundreds of different codes."
+        return {}, {}, dashT1, dashT2, error, "", "", "", "", 0
     
     if error == 1 and smartscale == 0:
-        error = "Error: The model exceeded the maximum iterations in trying to find a fit. Try using Smart Scale. You might also have one or more severely redundant (multicollinear) predictors included. Try removing one or more potentially problematic predictors. Tip: Eliminate redundant predictors, predictors of little-to-no interest, or categorical variables with many levels, e.g., a column of diagnosis codes may have hundreds of different codes."
-        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+        error = "Error: The model exceeded the maximum iterations in trying to find a fit. "
+        error += "Try using Smart Scale. You might also have one or more severely redundant "
+        error += "(multicollinear) predictors included. Try removing one or more potentially "
+        error += "problematic predictors. Tip: Eliminate redundant predictors, predictors of "
+        error += "little-to-no interest, or categorical variables with many levels, e.g., a "
+        error += "column of diagnosis codes may have hundreds of different codes."
+        return {}, {}, dashT1, dashT2, error, "", "", "", "", 0
     
     if error == 2:
-        error = "Error: The response variable must contain two unique values (e.g., 0 and 1). However, after removing rows with missing data, your chosen y-variable (" + yvar + ") only contains one unique value. Rows with missing data are removed because the logistic model will fail if the dataset contains any missing data. Try starting with fewer predictors. Once you have a working model, then try adding more to achieve better performance."
-        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
+        error = "Error: The response variable must contain two unique values (e.g., 0 and 1). "
+        error += "However, after removing rows with missing data, your chosen y-variable "
+        error += "(" + yvar + ") only contains one unique value. Rows with missing data are "
+        error += "removed because the logistic model will fail if the dataset contains any "
+        error += "missing data. Try starting with fewer predictors. Once you have a working model, "
+        error += "then try adding more to achieve better performance."
+        return {}, {}, dashT1, dashT2, error, "", "", "", "", 0
     
     if error == 3:
-        error = "Error: After removing rows with missing data, your dataset no longer contains any rows matching your chosen y-variable (" + yvar + "). Rows with missing data are removed because the logistic model will fail if the dataset contains any missing data. Try starting with fewer predictors. Once you have a working model, then try adding more to achieve better performance."
-        return {}, {}, dashT1, dashT2, error, [0], "", "", "", "", 0
-    
-        
+        error = "Error: After removing rows with missing data, your dataset no longer contains "
+        error += "any rows matching your chosen y-variable (" + yvar + "). Rows with missing data "
+        error += "are removed because the logistic model will fail if the dataset contains any "
+        error += "missing data. Try starting with fewer predictors. Once you have a working model, "
+        error += "then try adding more to achieve better performance."
+        return {}, {}, dashT1, dashT2, error, "", "", "", "", 0
         
     fpr = models_df['FPR'].tolist()
     fpr = fpr[0]
@@ -5767,11 +8392,21 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
                     },
     )
         
-    txt1 = "This table pertains to the fitted model. This model predicts the probability of an observation being a positive (1) instead of a negative (0). All this is before applying a diagnositic threshold, i.e., the point where we count an estimated probability as a 0 or a 1. The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates that a predictor variable is significantly correlated with one or more other predictors. VIF > 10 indicates severe multicollinearity, which can lead to overfitting and inaccurate parameter estimates. If your VIF's are high, trying removing some of those variables."
+    txt1 = "This table pertains to the fitted model. This model predicts the probability of an "
+    txt1 += "observation being a positive (1) instead of a negative (0). All this is before "
+    txt1 += "applying a diagnositic threshold, i.e., the point where we count an estimated "
+    txt1 += "probability as a 0 or a 1. The variance inflation factor (VIF) measures "
+    txt1 += "multicollinearity. VIF > 5 indicates that a predictor variable is significantly "
+    txt1 += "correlated with one or more other predictors. VIF > 10 indicates severe "
+    txt1 += "multicollinearity, which can lead to overfitting and inaccurate parameter "
+    txt1 += "estimates. If your VIF's are high, trying removing some of those variables."
     
-    txt2 = "This table pertains to results after finding an optimal diagnostic threshold. This threshold determines whether the value of an outcome's probability is counted as a positive (1) or a negative (0). The threshold is found by determining the point on the ROC curve that is closest to the upper left corner."
+    txt2 = "This table pertains to results after finding an optimal diagnostic threshold. "
+    txt2 += "This threshold determines whether the value of an outcome's probability is counted "
+    txt2 += "as a positive (1) or a negative (0). The threshold is found by determining the point "
+    txt2 += "on the ROC curve that is closest to the upper left corner."
     
-    auroc = np.round(auroc,3)
+    auroc = np.round(auroc, 3)
     t1 = str()
     if auroc < 0.45:
         t1 = " worse than random "
@@ -5794,63 +8429,127 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
     else:
         t1 = " outstanding "
         
-    txt3 = "AUC = area under the ROC curve, i.e., average true positive rate across diagnostic thresholds. Random 50:50 guesses produce values of 0.5. Your AUC value of " + str(auroc) + " indicates" + t1 + "diagnostic power."
+    txt3 = "AUC = area under the ROC curve, i.e., average true positive rate across diagnostic "
+    txt3 += "thresholds. Random 50:50 guesses produce values of 0.5. Your AUC value of "
+    txt3 += str(auroc) + " indicates" + t1 + "diagnostic power."
     
-    txt4 = "AUC = area under the PRC curve, i.e., average precision across diagnostic thresholds. Random 50:50 guesses produce AUC values that equal the fraction of positive outcomes (1's) in the data. "
+    txt4 = "AUC = area under the PRC curve, i.e., average precision across diagnostic thresholds. "
+    txt4 += "Random 50:50 guesses produce AUC values that equal the fraction of positive outcomes "
+    txt4 += "(1's) in the data. "
     
     p = auprc/prc_null
     auprc_t = str(round(auprc, 3))
     if p > 1.5 and auprc > 0.9:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. Your model seems to be highly precise, especially when compared to the null expectation."
-    elif p > 1.5 and auprc > 0.8:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderate-to-high, especially when compared to the null expectation."
-    elif p > 1.5 and auprc > 0.7:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderately useful, especially when compared to the null expectation."
-    elif p > 1.5 and auprc > 0.6:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is low-to-moderate, especially when compared to the null expectation."
-    elif p > 1.5 and auprc > 0.5:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, barely better than a coin toss."
-    elif p > 1.5:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, worse than or equal to a coin toss."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. Your model seems to be highly precise, "
+        txt4 += "especially when compared to the null expectation."
     
+    elif p > 1.5 and auprc > 0.8:
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is moderate-to-high, "
+        txt4 += "especially when compared to the null expectation."
+    
+    elif p > 1.5 and auprc > 0.7:
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is moderately useful, "
+        txt4 += "especially when compared to the null expectation."
+    
+    elif p > 1.5 and auprc > 0.6:
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is low-to-moderate, "
+        txt4 += "especially when compared to the null expectation."
+    
+    elif p > 1.5 and auprc > 0.5:
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is, however, "
+        txt4 += "barely better than a coin toss."
+    
+    elif p > 1.5:
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is, however, "
+        txt4 += "no better than a coin toss."
+
     
     elif p > 1.25 and auprc > 0.9:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. Your model seems to be highly precise, particularly in regard to the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. Your model seems to be highly precise, "
+        txt4 += "particularly regarding to the null expectation."
+
     elif p > 1.25 and auprc > 0.8:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderate-to-high, particularly in regard to the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is moderate-to-high, "
+        txt4 += "particularly regarding to the null expectation."
+    
     elif p > 1.25 and auprc > 0.7:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderately useful, particularly in regard to the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is moderately useful, "
+        txt4 += "particularly regarding to the null expectation."
+
     elif p > 1.25 and auprc > 0.6:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is low-to-moderate, particularly in regard to the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is low-to-moderate, "
+        txt4 += " particularly in regard to the null expectation."
+    
     elif p > 1.25 and auprc > 0.5:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, barely better than a coin toss."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is, "
+        txt4 += "however, barely better than a coin toss."
+
     elif p > 1.25:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, worse than or equal to a coin toss."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is, "
+        txt4 += "however, worse than or equal to a coin toss."
     
     elif p > 1.1 and auprc > 0.9:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. Your model seems to be highly precise, but maybe not much more than the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. Your model seems to be highly precise, "
+        txt4 += "but maybe not much more than the null expectation."
+
     elif p > 1.1 and auprc > 0.8:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderate-to-high, but maybe not much more than the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is moderate-to-high, "
+        txt4 += "but maybe not much more than the null expectation."
+    
     elif p > 1.1 and auprc > 0.7:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is moderately useful, but maybe not much more than the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is moderately useful, "
+        txt4 += "but maybe not much more than the null expectation."
+    
     elif p > 1.1 and auprc > 0.6:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is low-to-moderate, but maybe not much more than the null expectation."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is low-to-moderate, "
+        txt4 += "but maybe not much more than the null expectation."
+    
     elif p > 1.1 and auprc > 0.5:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, barely better than a coin toss."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is, however, "
+        txt4 += "barely better than a coin toss."
+    
     elif p > 1.1:
-        txt4 = txt4 + "Your AUC was " + auprc_t + ", which is " + str(round(p, 3)) + " times greater than the null. The precision of your model is, however, worse than or equal to a coin toss."
+        txt4 += "Your AUC was " + auprc_t + ", which is " + str(round(p, 3))
+        txt4 += " times greater than the null. The precision of your model is, however, "
+        txt4 += "worse than or equal to a coin toss."
     
     
     elif p > 1 and auprc > 0.9:
-        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null, even though your model seems to be highly precise."
+        txt4 += "Your AUC of " + auprc_t + " was nearly equal to the null, "
+        txt4 += "even though your model seems to be highly precise."
+        
     elif p > 1 and auprc > 0.8:
-        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null, even though the precision of your model is moderate-to-high."
+        txt4 += "Your AUC of " + auprc_t + " was nearly equal to the null, "
+        txt4 += "even though the precision of your model is moderate-to-high."
+    
     elif p > 1 and auprc > 0.7:
-        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null, even though the precision of your model is moderately useful."
+        txt4 += "Your AUC of " + auprc_t + " was nearly equal to the null, "
+        txt4 += "even though the precision of your model is moderately useful."
+    
     elif p > 1 and auprc > 0.6:
-        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null and your model is low-to-moderately precise."
+        txt4 += "Your AUC of " + auprc_t + " was nearly equal to the null and your model "
+        txt4 += "model is low-to-moderately precise."
+    
     elif p > 1 and auprc > 0.5:
-        txt4 = txt4 + "Your AUC of " + auprc_t + " was nearly equal to the null and the precision of your model is low."
+        txt4 += "Your AUC of " + auprc_t
+        txt4 += " was nearly equal to the null and the precision of your model is low."
     
     elif p == 1:
         txt4 = txt4 + "Your AUC of " + auprc_t + " equalled the null."
@@ -5858,13 +8557,621 @@ def update_logistic_regression(contents1, contents2, contents3, n_clicks, smarts
     elif p < 1:
         txt4 = txt4 + "Your AUC of " + auprc_t + " was worse than the null."
     
-    return figure1, figure2, dashT1, dashT2, "", [1], txt1, txt2, txt3, txt4, 0
+    return figure1, figure2, dashT1, dashT2, "", txt1, txt2, txt3, txt4, 0
 
 
-#########################################################################################
-############################# Run the server ############################################
-#########################################################################################
+@app.callback([Output('figure_glm', 'figure'),
+               Output('glm_params_table', 'children'),
+               Output('glm_performance_table', 'children'),
+               Output('rt1_glm', 'children'),
+               Output('figure_glm_txt', 'children'),
+               Output('glm_params_txt', 'children'),
+               Output('btn_glm', 'n_clicks'),
+               Output('btn_ss_glm', 'n_clicks')],
+              [Input('upload-data', 'contents'),
+               Input('hcris', 'children'),
+               Input('hais', 'children'),
+               Input('btn_glm', 'n_clicks'),
+               Input('btn_ss_glm', 'n_clicks')],
+              [State('glm_predictors', 'value'),
+               State('glm_response_var', 'value'),
+               State('data_table', 'data'),
+               State('cat_vars', 'children'),
+               State('rfecv_glm', 'value'),
+               State('glm_model', 'value'),
+               ],
+        )
+def update_glm(contents1, contents2, contents3, n_clicks, smartscale, 
+               xvars, yvar, df, cat_vars, rfe_val, glm_model):
+    
+    cols = ['Model information', 'Model statistics']
+    df_table1 = pd.DataFrame(columns=cols)
+    df_table1['Model information'] = [np.nan]*10
+    df_table1['Model statistics'] = [np.nan]*10
+    
+    dashT1 = dash_table.DataTable(
+        data=df_table1.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table1.columns],
+        
+        page_action='none',
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    'minwidth':'140px',
+                    'width':'160px',
+                    'maxwidth':'160px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
+        )
+    
+    cols = ['Parameter', 'coef', 'std err', 'z', 'P>|z|', '[0.025]', '[0.975]', 'VIF']
+    df_table2 = pd.DataFrame(columns=cols)
+    df_table2['Parameter'] = [np.nan]*10
+    df_table2['coef'] = [np.nan]*10
+    df_table2['std err'] = [np.nan]*10
+    df_table2['z'] = [np.nan]*10
+    df_table2['P>|z|'] = [np.nan]*10
+    df_table2['[0.025]'] = [np.nan]*10
+    df_table2['VIF'] = [np.nan]*10
+    
+    dashT2 = dash_table.DataTable(
+        data=df_table2.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table2.columns],
+        
+        page_action='none',
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    'minwidth':'140px',
+                    'width':'160px',
+                    'maxwidth':'160px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
+    )
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    if df is None:
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    elif yvar is None and xvars is None:
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    elif xvars is None or len(xvars) < 1:
+        return {}, dashT1, dashT2, "Error: Select one or more predictors", "", "", 0, 0
+        
+    elif yvar is None:
+        return {}, dashT1, dashT2, "Error: Select a reponse variable", "", "", 0, 0
+    
+    elif (isinstance(yvar, list) is True) & (xvars is None or len(xvars) < 1):
+        return [{}, dashT1, dashT2, 
+                "Error: Select a response variable and 1 or more predictors", "", "", 0, 0]
+    
+    elif isinstance(yvar, list) is True:
+        return {}, dashT1, dashT2, "Error: Select a response variable", "", "", 0, 0
+    
+    elif xvars is None or len(xvars) < 2:
+        return {}, dashT1, dashT2, "Error: Select two or more predictors", "", "", 0, 0
+    
+    df = pd.DataFrame(df)
+    if df.empty:
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    if yvar not in list(df):
+        return {}, dashT1, dashT2, "Error: Choose a response variable", "", "", 0, 0
+        
+    if yvar in xvars:
+        xvars.remove(yvar)
+        if len(xvars) == 0:
+            return [{}, dashT1, dashT2, 
+                    "Error: GLM requires 2 or more predictors. You chose one and it's the same as your response variable", 
+                    "", "", 0, 0]
+        
+    if len(xvars) < 1 and yvar is None:
+        return [{}, dashT1, dashT2, 
+                "Error: GLM requires 1 or more predictors and one response variable.", "", "", 0, 0]
+        
+    elif len(xvars) < 1:
+        return [{}, dashT1, dashT2, 
+                "Error: GLM requires 1 or more predictors.", "", "", 0, 0]
+                        
+    else:
+        print(df.shape)
+        vars_ = [yvar] + xvars
+        df = df.filter(items=vars_, axis=1)
+        print(df.shape)
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df.dropna(how='any', axis=0, inplace=True)
+        print(df.shape)
+        
+        if smartscale == 1:
+            df, xvars, yvars = smart_scale(df, xvars, [yvar])
+            yvar = yvars[0]
+        
+        # Treat data to prevent regression from failing
+        if glm_model == 'Poisson':
+            pass
+            
+        elif glm_model == 'Binomial':
+            pass
+            
+        elif glm_model == 'Gamma':
+            df = df[df[yvar] > 0]
+            for var in xvars:
+                df = df[df[var] > 0]
+            df.dropna(how='any', inplace=True)    
+            print(df.shape)
+            #features = xvars + yvar + cat_vars
+            #features = list(set(features))
+            #df.filter(labels=features, axis=1)
+            #df.drop(
+            pass
+        
+        elif glm_model == 'Gaussian':
+            pass
+        
+        elif glm_model == 'InverseGaussian':
+            pass
+        
+        elif glm_model == 'NegativeBinomial':
+            pass
+        
+        elif glm_model == 'Tweedie':
+            pass
+        
+        #Conduct glm
+        ls = run_glm(df, xvars, yvar, cat_vars, rfe_val, family=glm_model)
+        y_train, y_pred, df1_summary, df2_summary, supported_features, unsupported, colors = ls
+        
+        if len(y_train) == 0:
+            rt1 = "Error: Your regression could not run. Your y-values contain no data."
+            return {}, dashT1, dashT2, rt1, "", "", 0, 0
+        
+        r2_obs_pred = obs_pred_rsquare(y_train, y_pred)
+        r2_obs_pred = round(r2_obs_pred,2)
+        
+        y_train = y_train.tolist()
+        y_pred = y_pred.tolist()
+        
+        y_pred_outliers = []
+        y_pred_nonoutliers = []
+        y_train_outliers = []
+        y_train_nonoutliers = []
+        
+        for i, clr in enumerate(colors):
+            if clr == "#ff0000":
+                y_pred_outliers.append(y_pred[i])
+                y_train_outliers.append(y_train[i])
+            elif clr == "#3399ff":
+                y_pred_nonoutliers.append(y_pred[i])
+                y_train_nonoutliers.append(y_train[i])
+        
+        fig_data = []
+        
+        miny = min([min(y_train), min(y_pred)])
+        maxy = max([max(y_train), max(y_pred)])
+        
+        fig_data.append(go.Scatter(x = y_pred_nonoutliers, 
+                                   y = y_train_nonoutliers, 
+                                   name = 'Obs vs Pred',
+                                   mode = "markers", 
+                                   opacity = 0.75, 
+                                   marker = dict(size=10, 
+                                                 color="#3399ff"),
+                                   ),
+                        )
+        
+        #fig_data.append(go.Scatter(x = y_pred_outliers, y = y_train_outliers, name = 'Outliers',
+        #        mode = "markers", opacity = 0.75, marker = dict(size=10, color="#ff0000")))
+        
+        fig_data.append(go.Scatter(x = [miny, maxy], 
+                                   y = [miny, maxy], 
+                                   name = '1:1, r<sup>2</sup> = ' + str(r2_obs_pred),
+                                   mode = "lines", 
+                                   opacity = 0.75, 
+                                   line = dict(color = "#595959", 
+                                               width = 1, 
+                                               dash='dash'),
+                                   ),
+                        )
+                            
+        figure = go.Figure(data = fig_data,
+            layout = go.Layout(
+                xaxis = dict(title = dict(
+                        text = "<b>" + 'Predicted:  ' + yvar + "</b>",
+                        font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif", 
+                            size = 18,
+                            ),
+                        ), 
+                    showticklabels = True,
+                    ),
+                                            
+                yaxis = dict(title = dict(
+                        text = "<b>" + 'Observed:  ' + yvar + "</b>",
+                        font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif",
+                            size = 18,
+                            ),
+                        ),
+                    showticklabels = True,
+                    ),
+                                            
+                margin = dict(l=60, r=30, b=10, t=40), 
+                showlegend = True, height = 400,
+                paper_bgcolor = "rgb(245, 247, 249)", 
+                plot_bgcolor = "rgb(245, 247, 249)",
+            ),
+        )
+
+        dashT1 = dash_table.DataTable(
+            data=df1_summary.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df1_summary.columns],
+            export_format="csv",
+            page_action='none',
+            sort_action="native",
+            sort_mode="single",
+            filter_action="none",
+            
+            style_table={'height': '500px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
+        )
+        
+        df2_summary['Model information']=df2_summary['0'].astype(str)+' '+df2_summary['1'].astype(str)
+        df2_summary['Model statistics']=df2_summary['2'].astype(str)+' '+df2_summary['3'].astype(str)
+        
+        df2_summary.drop(labels=['0', '1', '2', '3'], 
+                         axis=1, 
+                         inplace=True)
+        
+        dashT2 = dash_table.DataTable(
+            data=df2_summary.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df2_summary.columns],
+            export_format="csv",
+            page_action='none',
+            sort_action="none",
+            filter_action="none",
+            
+            style_table={'height': '500px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
+        )
+        
+        del df2_summary
+        del df1_summary
+        
+        txt1 = "This plot allows you to interpret patterns in the regression model's success. "
+        txt1 = "Example: If points are consistently above the 1:1 line, then the observed values "
+        txt1 = "are always greater than the predicted values. If the relationship is curved and "
+        txt1 = "performance is weak, then try rescaling some of your variables "
+        txt1 = "(via log, square root, etc.)."
+        
+        txt2 = "The variance inflation factor (VIF) measures multicollinearity. VIF > 5 indicates "
+        txt2 = "that a predictor is significantly correlated with one or more other predictors. "
+        txt2 = "VIF > 10 indicates severe multicollinearity, which can lead to overfitting and "
+        txt2 = "inaccurate parameter estimates. If your VIF's are high, trying removing some of "
+        txt2 = "those variables."
+        
+        return figure, dashT1, dashT2, "", txt1, txt2, 0, 0
+
+
+@app.callback([Output('cox_regression_figure', 'figure'),
+               Output('cox_params_table', 'children'),
+               Output('cox_performance_table', 'children'),
+               Output('rt_cox', 'children'),
+               Output('cox_fig_txt', 'children'),
+               Output('cox_params_table_txt', 'children'),
+               Output('btn_cox', 'n_clicks'),
+               Output('btn_ss_cox', 'n_clicks')],
+              [Input('upload-data', 'contents'),
+               Input('hcris', 'children'),
+               Input('hais', 'children'),
+               Input('btn_cox', 'n_clicks'),
+               Input('btn_ss_cox', 'n_clicks')],
+              [State('cox_predictors', 'value'),
+               State('cox_partial', 'value'),
+               State('data_table', 'data'),
+               State('cat_vars', 'children'),
+               State('cox_multicollinear', 'value'),
+               State('cox_d_var', 'value'),
+               State('cox_e_var', 'value')],
+        )
+def update_cox_regression(contents1, contents2, contents3, n_clicks, smartscale, xvars, 
+                          partial_effects_var, df, cat_vars, rfe_val, duration_var, event_var):
+    
+    cols = ['Model information', 'Model statistics']
+    df_table1 = pd.DataFrame(columns=cols)
+    df_table1['Model information'] = [np.nan]*10
+    df_table1['Model statistics'] = [np.nan]*10
+    
+    dashT1 = dash_table.DataTable(
+        data=df_table1.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table1.columns],
+        
+        page_action='none',
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    'minwidth':'140px',
+                    'width':'160px',
+                    'maxwidth':'160px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
+    )
+    
+    cols = ['Parameter', 'coef', 'std err', 'z', 'P>|z|', '[0.025]', '[0.975]', 'VIF']
+    df_table2 = pd.DataFrame(columns=cols)
+    df_table2['Parameter'] = [np.nan]*10
+    df_table2['coef'] = [np.nan]*10
+    df_table2['std err'] = [np.nan]*10
+    df_table2['z'] = [np.nan]*10
+    df_table2['P>|z|'] = [np.nan]*10
+    df_table2['[0.025]'] = [np.nan]*10
+    df_table2['VIF'] = [np.nan]*10
+    
+    dashT2 = dash_table.DataTable(
+        data=df_table2.to_dict('records'),
+        columns=[{'id': c, 'name': c} for c in df_table2.columns],
+        
+        page_action='none',
+        sort_action="native",
+        sort_mode="multi",
+        filter_action="native",
+        
+        style_table={'height': '300px', 
+                     'overflowY': 'auto',
+                     },
+        style_cell={'padding':'5px',
+                    'minwidth':'140px',
+                    'width':'160px',
+                    'maxwidth':'160px',
+                    'whiteSpace':'normal',
+                    'textAlign': 'center',
+                    },
+    )
+    
+    ctx1 = dash.callback_context
+    jd1 = json.dumps({'triggered': ctx1.triggered,})
+    jd1 = jd1[:50]
+    if jd1 == '{"triggered": [{"prop_id": "upload-data.contents",':
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    if df is None:
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    #elif yvar is None and xvars is None:
+    #    return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    #elif yvar is None:
+    #    return {}, dashT1, dashT2, "Error: Select a reponse variable", "", "", 0, 0
+    
+    #elif (isinstance(yvar, list) is True) & (xvars is None or len(xvars) < 2):
+    #    return {}, dashT1, dashT2, "Error: Select a response variable and 2 or more predictors", "", "", 0, 0
+    
+    #elif isinstance(yvar, list) is True:
+    #    return {}, dashT1, dashT2, "Error: Select a response variable", "", "", 0, 0
+    
+    elif xvars is None or len(xvars) < 1:
+        return {}, dashT1, dashT2, "Error: Select one or more predictors", "", "", 0, 0
+    
+    df = pd.DataFrame(df)
+    if df.empty:
+        return {}, dashT1, dashT2, "", "", "", 0, 0
+    
+    #if yvar not in list(df):
+    #    return {}, dashT1, dashT2, "Error: Choose a response variable", "", "", 0, 0
+        
+    #if yvar in xvars:
+    #    xvars.remove(yvar)
+    #    if len(xvars) == 0:
+    #        return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors. You chose one and it's the same as your response variable", "", "", 0, 0
+    #    elif len(xvars) == 1:
+    #        return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors. You chose two but one is the same as your response variable", "", "", 0, 0
+    
+    #if len(xvars) < 2 and yvar is None:
+    #    return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors and one response variable.", "", "", 0, 0
+        
+    #elif len(xvars) < 2:
+    #    return {}, dashT1, dashT2, "Error: Multiple regression requires 2 or more predictors.", "", "", 0, 0
+                        
+    else:
+        vars_ = xvars + [partial_effects_var] + [duration_var] + [event_var]
+        vars_ = list(set(vars_))
+        df = df.filter(items=vars_, axis=1)
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        
+        #if smartscale == 1:
+        #    df, xvars, yvars = smart_scale(df, xvars, [yvar])
+        #    yvar = yvars[0]
+            
+        #df.dropna(how='any', inplace=True)
+                            
+        #Conduct cox regression
+        ls = run_cox(df, xvars, partial_effects_var, cat_vars, rfe_val, duration_var, event_var)
+        df_1, df_2, x_values, y_values = ls
+        
+        fig_data = []
+        
+        x10 = x_values[0]
+        y10 = y_values[0]
+        fig_data.append(go.Scatter(x = x10, 
+                                   y = y10, 
+                                   name = '10th percentile',
+                                   mode = "lines", 
+                                   opacity = 0.75, 
+                                   marker = dict(size=1, 
+                                                 color="#66ccff"),
+                                   ),
+                        )
+        
+        x50 = x_values[1]
+        y50 = y_values[1]
+        fig_data.append(go.Scatter(x = x50, 
+                                   y = y50, 
+                                   name = '50th percentile',
+                                   mode = "lines", 
+                                   opacity = 0.75, 
+                                   marker = dict(size=1, 
+                                                 color="#008ae6"),
+                                   ),
+                        )
+        
+        x90 = x_values[2]
+        y90 = y_values[2]
+        fig_data.append(go.Scatter(x = x90, 
+                                   y = y90, 
+                                   name = '90th percentile',
+                                   mode = "lines", 
+                                   opacity = 0.75, 
+                                   marker = dict(size=1, 
+                                                 color="#0052cc"),
+                                   ),
+                        )
+        
+        baseline_x = x_values[3]
+        baseline_y = y_values[3]
+        fig_data.append(go.Scatter(x = baseline_x, 
+                                   y = baseline_y, 
+                                   name = 'baseline',
+                                   mode = "lines", 
+                                   opacity = 0.75, 
+                                   marker = dict(size=1, 
+                                                 color="#999999"),
+                                   ),
+                        )
+        
+        #if len(y_train) == 0:
+        #    rt1 = "Error: Your regression could not run. Your y-values contain no data."
+        #    return {}, dashT1, dashT2, rt1, "", "", 0, 0
+        
+        tvar = str(event_var)
+        if len(tvar) > 14:
+            tvar = tvar[:7] + '...' + tvar[7:]
+            
+        xtext = "<b>Probability that " + tvar + " <br>has not occurred</b>"
+        
+        figure = go.Figure(data = fig_data,
+            layout = go.Layout(
+                xaxis = dict(title = dict(
+                        text = "<b>" + duration_var + "</b>",
+                        font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif", 
+                            size = 18,
+                            ),
+                        ), 
+                    showticklabels = True,
+                    ),
+                                            
+                yaxis = dict(title = dict(
+                        text = xtext,
+                        font = dict(family = '"Open Sans", "HelveticaNeue", "Helvetica Neue",'
+                            " Helvetica, Arial, sans-serif", 
+                            size = 18,
+                            ),
+                        ),
+                    showticklabels = True,
+                    ),
+                                            
+                margin = dict(l=60, r=30, b=10, t=40), 
+                showlegend = True, 
+                height = 400,
+                paper_bgcolor = "rgb(245, 247, 249)", 
+                plot_bgcolor = "rgb(245, 247, 249)",
+            ),
+        )
+
+        dashT1 = dash_table.DataTable(
+            data=df_1.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df_1.columns],
+            export_format="csv",
+            page_action='none',
+            sort_action="native",
+            sort_mode="multi",
+            filter_action="native",
+            
+            style_table={'height': '500px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
+        )
+        
+        dashT2 = dash_table.DataTable(
+            data=df_2.to_dict('records'),
+            columns=[{'id': c, 'name': c} for c in df_2.columns],
+            export_format="csv",
+            page_action='none',
+            sort_action="native",
+            sort_mode="multi",
+            filter_action="native",
+            
+            style_table={'height': '500px', 
+                         'overflowY': 'auto',
+                         },
+            style_cell={'padding':'5px',
+                        'minwidth':'140px',
+                        'width':'160px',
+                        'maxwidth':'160px',
+                        'whiteSpace':'normal',
+                        'textAlign': 'center',
+                        },
+        )
+        del df
+        del df_1
+        del df_2
+        
+        txt1 = "..."
+        txt2 = "..."
+        
+        return figure, dashT2, dashT1, "", txt1, txt2, 0, 0
+
+
+####################################################################################################
+#############################      Run the server      #############################################
+####################################################################################################
 
 
 if __name__ == "__main__":
-    app.run_server(host='0.0.0.0', debug = False) # modified to run on linux server
+    app.run_server(host='0.0.0.0', debug = True) # modified to run on linux server
