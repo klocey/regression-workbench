@@ -2262,45 +2262,6 @@ def control_card_choose_data():
             
             html.Div(
                 children=[
-                    html.H5("Patient Survival", 
-                            style={'display': 'inline-block', 
-                                   'margin-right': '10px',
-                                   },
-                            ),
-                    dcc.Markdown("This dataset is a stratified random sample containing 1/2 of " +
-                                 "the subjects from a study of the relationship between " +
-                                 "[serum free light chain (FLC)]" +
-                                 "(https://en.wikipedia.org/wiki/Serum_free_light-chain_measurement)" +
-                                 " and mortality. The original sample contains samples on " +
-                                 "approximately 2/3 of the residents of Olmsted County aged " +
-                                 "50 or greater. This dataset is also included by default into " +
-                                 "the python statsmodels library, which is how this application " +
-                                 "obtains it. A detailed descpription of the data can be found " +
-                                 "[here](https://rdrr.io/cran/survival/man/flchain.html).",
-                                 style={'width': '94.1%'},
-                                 ),
-                    
-                    dbc.Button("Load patient survival dataset",
-                               id='flchain',
-                               style={
-                                   "background-color": "#2a8cff",
-                                   'width': '92.5%',
-                                   'font-size': 12,
-                                   'display': 'inline-block',
-                                   },
-                        ),
-                ],
-                style={'display': 'inline-block', 
-                       'width': '45%',
-                       },
-                ),
-            
-            html.Br(),
-            html.Br(),
-            html.Br(),
-            
-            html.Div(
-                children=[
                     html.H5("Statsmodels Datasets", 
                             style={'display': 'inline-block', 
                                    'margin-right': '10px',
@@ -2475,34 +2436,6 @@ def control_card_choose_data():
                             },
                         ),
                     
-                ],
-                style={'display': 'inline-block', 
-                       'width': '45%',
-                       'margin-right': '7%',
-                       'margin-left': '1%',
-                       },
-            ),
-            
-            html.Div(
-                children=[
-                    html.H5("LifeLines Datasets", 
-                            style={'display': 'inline-block', 
-                                   'margin-right': '10px',
-                                   },
-                            ),
-                    dcc.Markdown("The Rush Regression Workbench offers 20 datasets from the python-based [LifeLines](https://lifelines.readthedocs.io/en/latest/index.html) survival analysis library. These data are especially suited for exploring and practicing survival regression (aka time-to-event regression). ",
-                                 style={'width': '94.1%'},
-                                 ),
-                    dbc.Button("Explore & Load LifeLines Data",
-                               id='lifelines_datasets_explore',
-                               style={
-                                   "background-color": "#2a8cff",
-                                   'width': '92.5%',
-                                   'font-size': 12,
-                                   'display': 'inline-block',
-                                   },
-                        ),
-
                 ],
                 style={'display': 'inline-block', 
                        'width': '45%',
@@ -2826,7 +2759,7 @@ def control_card_choose_reg2():
                                  style={'width': '94.1%',
                                         },
                                  ),
-                    dbc.Button("Run logistic regression",
+                    dbc.Button("Run Binary Classification",
                                id='open-logistic_reg',
                                style={
                                    "background-color": "#2a8cff",
@@ -4348,9 +4281,9 @@ def control_card_logistic():
                               'color':'#99ccff',
                               },
                        ),
-                dbc.Tooltip("In statistics, multiple logistic regression is used to find " +
+                dbc.Tooltip("In statistics, logistic and probit regression are used to find " +
                             "explanatory relationships and to understand the significance of " +
-                            "variables. In machine learning, it is used to obtain predictions. " +
+                            "variables. In machine learning, they are used to obtain predictions. " +
                             "This app does both.", 
                             target="BinClass", 
                             style = {'font-size': 12,
@@ -4372,8 +4305,8 @@ def control_card_logistic():
                               'color':'#bfbfbf',
                               },
                        ),
-                dbc.Tooltip("This app takes several efficiency steps when conducting multiple " +
-                            "logistic regression, i.e., when using >1 predictor variable. " + 
+                dbc.Tooltip("This app takes several efficiency steps when conducting " +
+                            "logistic and probit regression, i.e., when using >1 predictor variable. " + 
                             "First, predictors that are 95% zeros will be removed from " +
                             "analysis. Highly multicollinear predictors are also removed " +
                             "during analysis, as are predictors that are perfect correlates " +
@@ -4509,7 +4442,7 @@ def control_card_logistic():
                 html.Br(),
                 html.Br(),
                 
-                dbc.Button('Run logistic regression', 
+                dbc.Button('Run Regression', 
                             id='btn4', 
                             n_clicks=0,
                             style={'width': '20%',
@@ -4603,7 +4536,7 @@ def control_card_logistic():
                             "'Smart Scale' and the app will automatically detect and apply " +
                             "the best scaling for each skewed variable. Smart scaling will " +
                             "not necessarily improve the r-square.  To remove the rescaling " +
-                            "just click 'Run Logistic Regression'.", 
+                            "just click 'Run Regression'.", 
                             target="ss3", 
                             style = {'font-size': 12,
                                      },
@@ -5687,51 +5620,7 @@ def update_statmodels_data_doc(row, df):
     return doc
     
 
-@app.callback(
-    [Output('hcris', 'style'),
-     Output('hais', 'style'),
-     Output('hacrp', 'style'),
-     Output('hrrp', 'style'),
-     Output('c_and_d', 'style'),
-     Output('p_and_v', 'style'),
-     Output('t_and_e', 'style'),
-     Output('unplanned_visits', 'style'),
-     Output('imaging', 'style'),
-     Output('flchain', 'style'),
-    ],
-    [Input('upload-data', 'contents'),
-     Input('hcris', 'n_clicks'),
-     Input('hais', 'n_clicks'),
-     Input('hacrp', 'n_clicks'),
-     Input('hrrp', 'n_clicks'),
-     Input('c_and_d', 'n_clicks'),
-     Input('p_and_v', 'n_clicks'),
-     Input('t_and_e', 'n_clicks'),
-     Input('unplanned_visits', 'n_clicks'),
-     Input('imaging', 'n_clicks'),
-     Input('flchain', 'n_clicks'),
-     ],
-    prevent_initial_call=True,
-)
-def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, 
-                         unplanned_visits, imaging, flchain):
-    
-    ctx1 = dash.callback_context
-    jd1 = json.dumps({'triggered': ctx1.triggered,})
-    jd1 = jd1[:50]
-    
-    labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 
-            'p_and_v', 't_and_e', 'unplanned_visits', 'imaging', 'flchain']
-    sets = []
-    for l in labs:
-        if l in jd1:
-            sets.append({'background-color': '#ff5733', 'width': '92.5%', 'font-size': 12, 
-                         'display': 'inline-block', 'margin-right': '20px'})
-        else:
-            sets.append({'background-color': '#2a8cff', 'width': '92.5%', 'font-size': 12, 
-                         'display': 'inline-block', 'margin-right': '20px'})
-        
-    return sets[0],sets[1],sets[2],sets[3],sets[4],sets[5],sets[6],sets[7],sets[8],sets[9]
+
 
 
 @app.callback([Output('main_df', 'data'),
@@ -5746,7 +5635,6 @@ def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t
                Input('t_and_e', 'n_clicks'),
                Input('unplanned_visits', 'n_clicks'),
                Input('imaging', 'n_clicks'),
-               Input('flchain', 'n_clicks'),
                Input('load_statsmodels_dataset', 'n_clicks'),
                ],
               [State('upload-data', 'filename'),
@@ -5764,7 +5652,7 @@ def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t
                ], 
             )
 def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, 
-                          t_and_e, unplanned_visits, imaging, flchain, statsmodels_data, 
+                          t_and_e, unplanned_visits, imaging, statsmodels_data, 
                           file_name, list_of_dates, hcris_yr, hais_yr, hacrp_yr, hrrp_yr, 
                           c_and_d_yr, p_and_v_yr, t_and_e_yr, unplanned_visits_yr, 
                           imaging_yr, statsmodels_row):
@@ -5774,7 +5662,7 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
     jd1 = jd1[:50]
     
     labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 
-            't_and_e', 'unplanned_visits', 'imaging', 'flchain', 'load_statsmodels_data']
+            't_and_e', 'unplanned_visits', 'imaging', 'load_statsmodels_data']
     
     yrs = [hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, 
            t_and_e_yr, unplanned_visits_yr, imaging_yr]
@@ -5794,11 +5682,8 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
     for i, lab in enumerate(labs):
         if lab in jd1:
             select_preprocessed = 'y'
-            if lab == 'flchain':
-                df = sm.datasets.get_rdataset("flchain", "survival").data
-                
-            elif lab == 'load_statsmodels_data':
-                
+            
+            if lab == 'load_statsmodels_data':
                 dataset = statsmodels_row['row_id']
                 package = statsmodels_df[statsmodels_df['id'] == dataset]['package'].iloc[0]
                 item	 = statsmodels_df[statsmodels_df['id'] == dataset]['item'].iloc[0]
