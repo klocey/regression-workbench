@@ -61,6 +61,28 @@ server = app.server
 xvars = ['Nothing uploaded']
 yvar = 'Nothing uploaded'
 
+
+
+statsmodels_tags = ["AIDS ","Down","WHO ","abortion","adolescent","adult","anxiety","arthritis",
+                    "auditory","autism","behavior","biopsy","birth","blood","body","breast",
+                    "cancer","cardiovascular","cell","child","cholera","cirrhosis","clinical",
+                    "coma","consumption","contagious","contraceptive","coronary","covid","deaths",
+                    "dengue","dependency","deprivation","diabetes","diarrhaea","disease","doctor",
+                    "donation","drug","eating","ebola","efficacy","exercise","feet","fertility",
+                    "food","freedom","gestation","headaches","health","healthcare","hepatocellular",
+                    "hiv","illness","indomethacin","infant","insurance","liver","male","malignant",
+                    "mammogram","marrow","medicaid","medical","medicare","medpar","melanoma",
+                    "migraine","neuro","nutrition","obesity","obstetrics","organ","pancreatic",
+                    "parents","periodontal","physician","prenatal","prostate","prothrombin",
+                    "quarantine","radiation","recovery","remission","reporting","respiratory",
+                    "risk","serum","sleep","smallpox","smoking","society","stress","syndrome",
+                    "transplant","urine","vaccine","weight","wheeze","women"]
+
+statsmodels_df = pd.read_csv('statsmodels_df.csv')
+statsmodels_df.drop(labels=['Unnamed: 0'], axis=1, inplace=True)
+statsmodels_df = statsmodels_df.rename(columns={'Dataset': 'id'})
+statsmodels_df.set_index('id', inplace=True, drop=False)
+
 ####################################################################################################
 ###########################      CUSTOM FUNCTIONS      #############################################
 ####################################################################################################
@@ -859,22 +881,6 @@ def run_glm(df_train, xvars, yvar, cat_vars, rfe_val, family):
     vifs = [variance_inflation_factor(X_train.values, j) for j in range(X_train.shape[1])]
     vifs2 = []
     
-    print('\n\n')
-    print('df1_summary:')
-    print(df1_summary)
-    print('df1_summary.columns:')
-    print(df1_summary.columns)
-    print('\n')
-    print('df2_summary:')
-    print(df2_summary)
-    print('df2_summary.columns:')
-    print(df2_summary.columns)
-    print('\n')
-    
-    print(list(X_train), '\n')
-    print(list(X_train_lm), '\n')
-    print('xlabs:', xlabs, '\n')
-    
     xlabs = list(X_train)
     for p in df1_summary['Variable'].tolist():
         if p == 'const':
@@ -1404,6 +1410,152 @@ def control_card_upload1b():
         )
 
 
+def level_collapser_control_card():
+    
+    return html.Div(
+        children=[
+            html.H5('Collapse Levels',
+                   style={'textAlign': 'left', 
+                          'font-size': 28,
+                          'color': '#ffffff',
+                          },
+                   ),
+            html.Br(),
+            
+            html.B("Choose a categorical variable",
+                style={'display': 'block',
+                       'font-size': 16,
+                        'vertical-align': 'top',
+                        'color': '#ffffff',
+                   },
+                ),
+            dcc.Dropdown(
+                    id='cat_var_collapse',
+                    options=[{"label": i, "value": i} for i in []],
+                    multi=False, 
+                    value=None,
+                    style={'width': '50%',
+                         },
+                    ),
+            html.Br(),
+            
+            html.B("Choose one or more levels",
+                style={'display': 'block',
+                       'font-size': 16,
+                       'vertical-align': 'top',
+                       'color': '#ffffff',
+                },
+            ),
+            dcc.Dropdown(
+                    id='level_vars',
+                    options=[{"label": i, "value": i} for i in []],
+                    multi=True, 
+                    value=None,
+                    style={'width': '99%',
+                         },
+                    ),
+            html.Br(),
+            
+            html.B("Create a new level OR collapse the level(s) you chose into an existing level",
+                style={'display': 'block',
+                       'font-size': 16,
+                       'vertical-align': 'top',
+                       'color': '#ffffff',
+                },
+            ),
+            dcc.Input(
+                id='new_level_name',
+                type='text',
+                placeholder='Type the name of an existing level or create a new level',
+                style={'width': '51%',
+                    'font-size': 16,
+                    'display': 'block',
+                    },
+            ),
+            html.Br(),
+            
+            dbc.Button('Collapse', 
+                        id='level-collapse-btn1', 
+                        n_clicks=0,
+                        style={'width': '20%',
+                            'font-size': 14,
+                            "background-color": "#2a8cff",
+                            'margin-right': '2%',
+                            },
+            ),
+            html.Br(),
+            html.H5("", id='collapse_text',
+            style={'textAlign': 'left',
+                   'font-size': 16,
+                   'margin-left': '3%',
+                   'color': '#ffffff'}),
+            dcc.Interval(id='collapse-interval-component', interval=3000, n_intervals=0)
+            ],
+        )
+    
+
+def statsmodels_data_table():
+    return html.Div(
+        id='statsmodels_data_table_div', 
+        className="ten columns",
+        children=[
+            
+            dash_table.DataTable(
+                id='statsmodels_data_table',
+                columns=[{
+                    'name': 'Column {}'.format(i),
+                    'id': 'column-{}'.format(i),
+                    'deletable': False,
+                    'renamable': False,
+                    'selectable': False,
+                    } for i in range(1, 4)],
+                                        
+                data=None,
+                is_focused=True,
+                #virtualization=True,
+                #editable=True,
+                page_action='native',
+                page_size=120,
+                filter_action='native',
+                sort_action='native',
+                #row_deletable=True,
+                #column_selectable='multi',
+                #export_format='xlsx',
+                #export_headers='display',
+                fixed_rows={'headers': True},
+                                  
+                style_header={'padding':'1px', 
+                              #'width':'250px', 
+                              #'minWidth':'250px', 
+                              #'maxWidth':'250px', 
+                              'textAlign': 'center', 
+                              'overflowX': 'auto',
+                              },
+                style_data = {'padding':'5px', 
+                              #'width':'250px', 
+                              #'minWidth':'250px', 
+                              #'maxWidth':'250px', 
+                              'textAlign': 'center', 
+                              'overflowX': 'auto',
+                              },
+                style_table={#'height': '120px', 
+                             'overflowX': 'auto',
+                             },
+                style_cell_conditional=[
+                    {'if': {'column_id': 'id'}, 'width': '60%'},
+                    {'if': {'column_id': 'No. of rows'}, 'width': '20%'},
+                    {'if': {'column_id': 'No. of columns'}, 'width': '20%'},
+                ],
+                ),
+            
+            ],
+        style={'display':'block',
+               'width': '93%',
+               "background-color": "#696969",
+               }
+        )
+
+
 def data_table():
     return html.Div(
         id='Data-Table1', 
@@ -1411,7 +1563,8 @@ def data_table():
         children=[html.H5("Data Table", 
                           style={'display': 'inline-block', 
                                  'color': '#FFFFFF',
-                                 'width': '8.5%',
+                                 'font-size': 28,
+                                 'width': '10.5%',
                                  },
                     ),
             html.I(className="fas fa-question-circle fa-lg", 
@@ -1419,6 +1572,7 @@ def data_table():
                    style={'display': 'inline-block', 
                           'width': '3%', 
                           'color':'#99ccff',
+                          'vertical-align': 'center',
                           },
                    ),
             dbc.Tooltip("Use this table to ensure your data loaded as expected and to delete any " +
@@ -1511,16 +1665,74 @@ def inspect_data_table():
                                "background-color": "#696969",
                                },
                         ),
-                    dbc.ModalFooter(
+                    
+                dbc.ModalFooter([
+                        dbc.Button('Collapse Levels',
+                                   id="open-level-collapse",
+                                   style={
+                                       "background-color": "#2a8cff",
+                                       'width': '30%',
+                                       'font-size': 16,
+                                       'display': 'inline-block',
+                                       },
+                            ),
+                        
+                        dbc.Modal([
+                            dbc.ModalBody([
+                                    html.Div(
+                                            id="level-collapse",
+                                            className="one columns",
+                                            children=[level_collapser_control_card()],
+                                            style={'width': '100%'},
+                                        ),
+                                    html.Br(),
+                                    ],
+                                    style={'width': '100%',
+                                           "background-color": "#A0A0A0",
+                                           },
+                                    ),
+                            dbc.ModalFooter(
+                                    dbc.Button("Click to Close",
+                                       id="close-level-collapse", 
+                                       className="ml-auto",
+                                       style={
+                                           "background-color": "#2a8cff",
+                                           'width': '30%',
+                                           'font-size': 16,
+                                           },
+                                       ),
+                                    style={
+                                        "background-color": "#A0A0A0",
+                                        "display": "flex",
+                                        "justify-content": "center",
+                                        "align-items": "center",
+                                        },
+                                    ),
+                                ],
+                            id="modal-level-collapse",
+                            
+                            is_open=False,
+                            centered=True,
+                            autoFocus=True,
+                            size="xl",
+                            keyboard=True,
+                            fade=True,
+                            backdrop=True,
+                            
+                            ),
+                        
+                        
                         dbc.Button("Click to Close", 
                                    id="close-inspect_main_datatable", 
                                    className="ml-auto",
                                    style={
                                        "background-color": "#2a8cff",
                                        'width': '30%',
-                                       'font-size': 14,
+                                       'font-size': 16,
+                                       'display': 'inline-block',
                                        },
                                    ),
+                        ],
                         style={
                             "background-color": "#696969",
                             "display": "flex",
@@ -1529,6 +1741,7 @@ def inspect_data_table():
                             },
                         ),
                     ],
+                
                 id="modal-inspect_main_datatable",
                 is_open=False,
                 centered=True,
@@ -2081,6 +2294,220 @@ def control_card_choose_data():
                        'width': '45%',
                        },
                 ),
+            
+            html.Br(),
+            html.Br(),
+            html.Br(),
+            
+            html.Div(
+                children=[
+                    html.H5("Statsmodels Datasets", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                    dcc.Markdown("The python-based Statsmodels library provides hundreds of data sets (data and meta-data) for use in examples, tutorials, model testing, etc. The Rush Regression Workbench makes 100 of these datasets and their documentation available. Each of these datasets is healthcare-based and contains 900 to >10K rows (observations).",
+                                 style={'width': '94.1%'},
+                                 ),
+                    dbc.Button("Explore & Load Statsmodels Data",
+                               id='open-statsmodels',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+                    dbc.Modal(
+                        [dbc.ModalBody([
+                            
+                            html.Div(
+                                    className="one columns",
+                                    children=[
+                                        html.H5("Expore & Load Statsmodels Healthcare Datasets", 
+                                                style={'color': '#FFFFFF',
+                                                       'font-size': 28,
+                                                       },
+                                                    ),
+                                        html.Hr(),
+                                        html.P("Choose one or more tags", 
+                                                style={'color': '#FFFFFF',
+                                                       'font-size': 20,
+                                                       },
+                                                    ),
+                                        dcc.Dropdown(
+                                            id='statsmodels_tags',
+                                            options=[{"label": i, "value": i} for i in statsmodels_tags],
+                                            multi=True, 
+                                            value=statsmodels_tags,
+                                            placeholder=None,
+                                            style={'margin-bottom': '10px',
+                                                   'width':'99%',
+                                                 },
+                                            ),
+                                        html.Br(),
+                                        
+                                        html.H5("Data Table", 
+                                                style={'display': 'inline-block', 
+                                                       'color': '#FFFFFF',
+                                                       'font-size': 28,
+                                                       'margin-right': '5%',
+                                                       'margin-left': '2%',
+                                                       },
+                                                ),
+                                        
+                                        dbc.Button("View MetaData",
+                                                   id='open-statsmodels_data_doc',
+                                                   style={
+                                                       'display': 'inline-block', 
+                                                       "background-color": "#2a8cff",
+                                                       'font-size': 16,
+                                                       'width':'25%',
+                                                       'margin-right': '5%',
+                                                       },
+                                            ),
+                                        dbc.Modal([
+                                            
+                                            dbc.ModalFooter(
+                                                    dbc.Button("Click to Close", 
+                                                               id='close-statsmodels_data_doc', 
+                                                               className="ml-auto",
+                                                               style={
+                                                                   "background-color": "#2a8cff",
+                                                                   'width': '30%',
+                                                                   'font-size': 14,
+                                                                   },
+                                                               ),
+                                                    style={
+                                                        "background-color": "#989898",
+                                                        "display": "flex",
+                                                        "justify-content": "center",
+                                                        "align-items": "center",
+                                                        },
+                                                    ),
+                                            
+                                            dbc.ModalBody([
+                                                html.Div(
+                                                    className="two columns",
+                                                    children=[dcc.Markdown("Click on a dataset in the 'id' column of the datatable.", id='statsmodels_data_doc',
+                                                                     ),
+                                                              ],
+                                                    style={'width': '95.3%',
+                                                            'display': 'block',
+                                                            'border-radius': '15px',
+                                                            'box-shadow': '1px 1px 1px grey',
+                                                            'background-color': '#f0f0f0',
+                                                            'padding': '10px',
+                                                            'margin-bottom': '10px',
+                                                            },
+                                                        ),                        
+                                                    ]),
+                                            
+                                            ],
+                                        id="modal-statsmodels_data_doc",
+                                        is_open=False,
+                                        centered=True,
+                                        autoFocus=True,
+                                        size='xl',
+                                        #fullscreen=True,
+                                        keyboard=True,
+                                        fade=True,
+                                        ),
+                                        
+                                        dbc.Button("Load Statsmodels Dataset",
+                                                   id='load_statsmodels_dataset',
+                                                   style={
+                                                       'display': 'inline-block', 
+                                                       "background-color": "#2a8cff",
+                                                       'font-size': 16,
+                                                       'width':'25%',
+                                                       },
+                                            ),
+                                        statsmodels_data_table(),
+                                        
+                                        ],
+                                    style={'width': '100%',
+                                           "background-color": "#696969",
+                                           #"display": "flex",
+                                           "justify-content": "center",  # Center horizontally
+                                           "align-items": "center",  # Center vertically)
+                                    },
+                                ),
+                            
+                            html.Br(), 
+                            ],
+                            style={'width': '100%',
+                                   "background-color": "#696969",
+                                   #"display": "flex",
+                                   "justify-content": "center",  # Center horizontally
+                                   "align-items": "center",  # Center vertically)
+                            },
+                            ),
+                        dbc.ModalFooter(
+                                dbc.Button("Close", 
+                                           id="close-statsmodels", 
+                                           className="ml-auto",
+                                           style={"background-color": "#2a8cff",
+                                                  'width': '30%',
+                                                  'font-size': 14,
+                                                  },
+                                           ),
+                                style={"background-color": "#696969",
+                                    "display": "flex",
+                                    "justify-content": "center",  # Center horizontally
+                                    "align-items": "center",  # Center vertically)
+                                    },
+                                ),
+                        ],
+                        id="modal-statsmodels",
+                        is_open=False,
+                        centered=True,
+                        autoFocus=True,
+                        fullscreen=True,
+                        keyboard=True,
+                        fade=True,
+                        backdrop=True,
+                        
+                        style={#"background-color": "#696969",
+                               "display": "flex",
+                               "justify-content": "center",  # Center horizontally
+                               "align-items": "center",  # Center vertically)
+                            },
+                        ),
+                    
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       'margin-right': '7%',
+                       'margin-left': '1%',
+                       },
+            ),
+            
+            html.Div(
+                children=[
+                    html.H5("LifeLines Datasets", 
+                            style={'display': 'inline-block', 
+                                   'margin-right': '10px',
+                                   },
+                            ),
+                    dcc.Markdown("The Rush Regression Workbench offers 20 datasets from the python-based [LifeLines](https://lifelines.readthedocs.io/en/latest/index.html) survival analysis library. These data are especially suited for exploring and practicing survival regression (aka time-to-event regression). ",
+                                 style={'width': '94.1%'},
+                                 ),
+                    dbc.Button("Explore & Load LifeLines Data",
+                               id='lifelines_datasets_explore',
+                               style={
+                                   "background-color": "#2a8cff",
+                                   'width': '92.5%',
+                                   'font-size': 12,
+                                   'display': 'inline-block',
+                                   },
+                        ),
+
+                ],
+                style={'display': 'inline-block', 
+                       'width': '45%',
+                       },
+            ),
             ],
         )
     
@@ -4190,6 +4617,7 @@ def control_card_logistic():
                     },
             )
 
+
 def control_card_glm():
 
     return html.Div(
@@ -4500,8 +4928,8 @@ def control_card_glm():
 ####################################################################################################
 ###################      DASH APP REGRESSION OUTPUT FUNCTIONS      #################################
 ####################################################################################################
-
-
+    
+    
 def parse_contents(contents, filename, date):
     
     content_type, content_string = contents.split(',')
@@ -5057,6 +5485,19 @@ def toggle_modal_inspect_main_datatable(n1, n2, is_open):
 
 
 @app.callback(
+    Output("modal-level-collapse", "is_open"),
+    [Input("open-level-collapse", "n_clicks"), 
+     Input("close-level-collapse", "n_clicks")],
+    [State("modal-level-collapse", "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_level_collapse(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
     Output("modal-centered-controlcard1", "is_open"),
     [Input("open-centered-controlcard1", "n_clicks"), 
      Input("close-centered-controlcard1", "n_clicks")],
@@ -5186,8 +5627,65 @@ def toggle_modal_cox_performance_table(n1, n2, is_open):
     return is_open
 
 
+@app.callback(
+    Output('modal-statsmodels', "is_open"),
+    [Input('open-statsmodels', "n_clicks"), 
+     Input('close-statsmodels', "n_clicks")],
+    [State('modal-statsmodels', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_statsmodals(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-statsmodels_data_doc', "is_open"),
+    [Input('open-statsmodels_data_doc', "n_clicks"), 
+     Input('close-statsmodels_data_doc', "n_clicks")],
+    [State('modal-statsmodels_data_doc', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_statsmodals(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
+
+@app.callback(
+    Output('modal-lifelines', "is_open"),
+    [Input('open-lifelines', "n_clicks"), 
+     Input('close-lifelines', "n_clicks")],
+    [State('modal-lifelines', "is_open")],
+    prevent_initial_call=True,
+)
+def toggle_modal_lifelines(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
+
 ###############  Buttons, Main DataFrames, Main DataTable   ########################################
 
+@app.callback(Output('statsmodels_data_doc', 'children'),
+              [Input('statsmodels_data_table', 'active_cell'),
+               Input('statsmodels_data_table', 'data'),
+              ],
+              )
+def update_statmodels_data_doc(row, df):
+    
+    if row is None:
+        raise PreventUpdate
+    
+    df = pd.DataFrame(df)
+    if df.empty:
+        return 'Your data table is empty'
+    
+    dataset = row['row_id']
+    doc = statsmodels_df[statsmodels_df['id'] == dataset]['docs'].iloc[0]
+    
+    return doc
+    
 
 @app.callback(
     [Output('hcris', 'style'),
@@ -5199,6 +5697,7 @@ def toggle_modal_cox_performance_table(n1, n2, is_open):
      Output('t_and_e', 'style'),
      Output('unplanned_visits', 'style'),
      Output('imaging', 'style'),
+     Output('flchain', 'style'),
     ],
     [Input('upload-data', 'contents'),
      Input('hcris', 'n_clicks'),
@@ -5210,18 +5709,19 @@ def toggle_modal_cox_performance_table(n1, n2, is_open):
      Input('t_and_e', 'n_clicks'),
      Input('unplanned_visits', 'n_clicks'),
      Input('imaging', 'n_clicks'),
+     Input('flchain', 'n_clicks'),
      ],
     prevent_initial_call=True,
 )
 def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t_and_e, 
-                         unplanned_visits, imaging):
+                         unplanned_visits, imaging, flchain):
     
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
     
     labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 
-            'p_and_v', 't_and_e', 'unplanned_visits', 'imaging']
+            'p_and_v', 't_and_e', 'unplanned_visits', 'imaging', 'flchain']
     sets = []
     for l in labs:
         if l in jd1:
@@ -5231,12 +5731,10 @@ def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t
             sets.append({'background-color': '#2a8cff', 'width': '92.5%', 'font-size': 12, 
                          'display': 'inline-block', 'margin-right': '20px'})
         
-    return sets[0],sets[1],sets[2],sets[3],sets[4],sets[5],sets[6],sets[7],sets[8] 
+    return sets[0],sets[1],sets[2],sets[3],sets[4],sets[5],sets[6],sets[7],sets[8],sets[9]
 
 
 @app.callback([Output('main_df', 'data'),
-               Output('cat_vars', 'children'),
-               Output('di_numerical_vars', 'children'),
                Output('rt4', 'children')],
               [Input('upload-data', 'contents'),
                Input('hcris', 'n_clicks'),
@@ -5249,6 +5747,7 @@ def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t
                Input('unplanned_visits', 'n_clicks'),
                Input('imaging', 'n_clicks'),
                Input('flchain', 'n_clicks'),
+               Input('load_statsmodels_dataset', 'n_clicks'),
                ],
               [State('upload-data', 'filename'),
                State('upload-data', 'last_modified'),
@@ -5261,20 +5760,21 @@ def update_button_styles(uploaded, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, t
                State('t_and_e-year', 'value'),
                State('unplanned_visits-year', 'value'),
                State('imaging-year', 'value'),
-               ],
-              
+               State('statsmodels_data_table', 'active_cell'),
+               ], 
             )
 def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p_and_v, 
-                          t_and_e, unplanned_visits, imaging, flchain, file_name, list_of_dates, 
-                          hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, t_and_e_yr, 
-                          unplanned_visits_yr, imaging_yr):
+                          t_and_e, unplanned_visits, imaging, flchain, statsmodels_data, 
+                          file_name, list_of_dates, hcris_yr, hais_yr, hacrp_yr, hrrp_yr, 
+                          c_and_d_yr, p_and_v_yr, t_and_e_yr, unplanned_visits_yr, 
+                          imaging_yr, statsmodels_row):
 
     ctx1 = dash.callback_context
     jd1 = json.dumps({'triggered': ctx1.triggered,})
     jd1 = jd1[:50]
     
     labs = ['hcris', 'hais', 'hacrp', 'hrrp', 'c_and_d', 'p_and_v', 
-            't_and_e', 'unplanned_visits', 'imaging', 'flchain']
+            't_and_e', 'unplanned_visits', 'imaging', 'flchain', 'load_statsmodels_data']
     
     yrs = [hcris_yr, hais_yr, hacrp_yr, hrrp_yr, c_and_d_yr, p_and_v_yr, 
            t_and_e_yr, unplanned_visits_yr, imaging_yr]
@@ -5296,23 +5796,34 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
             select_preprocessed = 'y'
             if lab == 'flchain':
                 df = sm.datasets.get_rdataset("flchain", "survival").data
+                
+            elif lab == 'load_statsmodels_data':
+                
+                dataset = statsmodels_row['row_id']
+                package = statsmodels_df[statsmodels_df['id'] == dataset]['package'].iloc[0]
+                item	 = statsmodels_df[statsmodels_df['id'] == dataset]['item'].iloc[0]
+                df = sm.datasets.get_rdataset(item, package).data
+                
             else:
-                url = urls[i] + yrs[i] + '.csv'
-                df = pd.read_csv(url)
+                try:
+                    url = urls[i] + yrs[i] + '.csv'
+                    df = pd.read_csv(url)
+                except:
+                    raise PreventUpdate
             break
     
     if select_preprocessed == 'n':
         
         if list_of_contents is None or file_name is None or list_of_dates is None: 
             # uploaded file contains nothing
-            return None, None, None, ""
+            return None, ""
         
         elif file_name[-4:] != '.csv': 
             # uploaded file does not have the .csv extension
             error_string = "Error: This application only accepts the universally useful "
             error_string += "CSV file type. Ensure that your file has the .csv extension " 
             error_string += "and is correctly formatted."
-            return None, None, None, error_string
+            return None, error_string
         
         elif list_of_contents is not None:
             error_string = "Error: Your .csv file was not processed. "
@@ -5327,19 +5838,19 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
                                                                        [file_name], 
                                                                        [list_of_dates])]
             except: 
-                return None, None, None, error_string
+                return None, error_string
             
             # Attempt to assign contents to an object
             try: 
                 df = children[0]
             except: 
-                return None, None, None, error_string
+                return None, error_string
              
             # Attempt to read the object as a pandas dataframe
             try: 
                 df = pd.read_json(df)
             except: 
-                return None, None, None, error_string
+                return None, error_string
     
     
     # Check for variables named 'Unnamed' and removed them
@@ -5374,7 +5885,6 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
     df.dropna(how='all', axis=0, inplace=True) # drop all rows having no data
     df = df.loc[:, df.nunique() != 1] # drop all columns containing only one unique value
     
-    ct, cat_vars, dichotomous_numerical_vars = 1, [], []
     variables = list(df)
     
     ############################################################################################
@@ -5402,94 +5912,236 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
     ############################################################################################
     ############################################################################################
         
-    # Attempt to detect which features are numeric, categorical, or potentially both (e.g., 
-    # dichotomous numerical).
-        
-    variables = list(df)
-    for i in variables:
-        if 'Unnamed' in i:
-            new_lab = 'Unnamed ' + str(ct)
-            df.rename(columns={i: new_lab}, inplace=True)
-            i = new_lab
-            ct += 1
-        
-        if i in datetime_ls2:
-            continue
-        for j in datetime_ls1:
-            if j in i:
-                continue
-            
-        # 1. Convert df[i] to numeric and coerce all non-numbers to np.nan 
-        df['temp'] = pd.to_numeric(df[i], errors='coerce')
-        # 2. Replace all the np.nan's in df['temp'] with values in df[i]
-        df['temp'].fillna(df[i], inplace=True)
-        # 3. Replace df[i] with df['temp']
-        df[i] = df['temp'].copy(deep=True)
-        # 4. Drop df['temp']
-        df.drop(labels=['temp'], axis=1, inplace=True)
-        
-        ls = df[i].unique()
-            
-        if all(isinstance(item, str) for item in ls) is True:
-            # if all items are strings, then call the feature categorical
-            cat_vars.append(i)
-            
-        else:
-            # else call the feature numeric
-            df[i] = pd.to_numeric(df[i], errors='coerce')
-            
-        if len(ls) == 2 and all(isinstance(item, str) for item in ls) is False:
-            dichotomous_numerical_vars.append(i)
-        
-    ############################################################################################
-    ############################################################################################
-        
     # A final check to dump any row containing no data
     df.dropna(how='all', axis=0, inplace=True)
-    return df.to_json(), cat_vars, dichotomous_numerical_vars, ""
+    return df.to_json(), ""
+
+
+
+@app.callback(Output('collapse_text', 'style'),
+              [Input('collapse-interval-component', 'n_intervals')]
+              )
+def hide_text(n):
+    if n >= 2:
+        return {'display': 'none'}
+    else:
+        return {'textAlign': 'left',
+                'margin-left': '3%',
+                'color': '#ffffff'}
+    
+    
+@app.callback(Output('level_vars', 'options'),
+              [Input('cat_var_collapse', 'value')],
+              [State('data_table', 'data')],
+              )
+def update_level_vars_options(cat_var, data):
+    
+    if data is None:
+        return [{"label": i, "value": i} for i in []]
+        
+    elif cat_var is None:
+        data = pd.DataFrame(data)
+        ls = [{"label": i, "value": i} for i in []]
+        return ls
+    else:
+        data = pd.DataFrame(data)
+        ls = sorted(data[cat_var].unique().tolist())
+        ls = [{"label": i, "value": i} for i in ls]
+        return ls
+
+
+@app.callback([Output('cat_var_collapse', 'options'),
+               Output('cat_var_collapse', 'value'),
+               ],
+              [Input("open-level-collapse", 'n_clicks'),
+               Input('collapse_text', 'children'),
+               ],
+              [State('cat_vars', 'children'),
+               State('data_table', 'selected_columns'),
+               ],
+            )
+def update_cat_vars_for_collapse(n_clicks, trigger, cat_vars, selected_cols):
+    
+    if selected_cols is None or cat_vars is None:
+        raise PreventUpdate
+        
+    else:
+        cat_vars = sorted([element for element in cat_vars if element in selected_cols])
+        
+        if cat_vars is None or cat_vars == []:
+            return [], None
+        
+        options = [{"label": i, "value": i} for i in cat_vars]
+        return options, cat_vars[0]
+
+
+@app.callback([Output('statsmodels_data_table', 'data'),
+               Output('statsmodels_data_table', 'columns'),
+               ],
+              [Input('statsmodels_tags', 'value'),
+               ]
+              )
+def update_statsmodels_data_table(tags):
+    
+    if tags is None:
+        raise PreventUpdate
+    
+    f_df = statsmodels_df.drop(labels=['docs', 'package', 'item'], axis=1)
+    f_df = f_df[f_df['id'].str.contains('|'.join(tags), case=True)]
+    
+    data = f_df.to_dict('records')
+    
+    columns = [{'id': c, 
+                'name': c, 
+                } for c in f_df.columns]
+    
+    return data, columns
+
 
 
 @app.callback([Output('data_table', 'data'),
                Output('data_table', 'columns'),
                Output('data_table', 'style_table'),
                Output('Data-Table1', 'style'),
+               Output('cat_vars', 'children'),
+               Output('di_numerical_vars', 'children'),
+               Output('collapse_text', 'children'),
+               Output('collapse-interval-component', 'n_intervals'),
+               Output('data_table', 'selected_columns'),
                ],
               [Input('main_df', 'data'),
-               Input('rt4', 'children'),
+               Input('level-collapse-btn1', 'n_clicks'),
+               Input('data_table', 'columns'),
+               Input('data_table', 'selected_columns'),
+               ],
+              [State('rt4', 'children'),
+               State('data_table', 'data'),
+               State('cat_var_collapse', 'value'),
+               State('level_vars', 'value'),
+               State('new_level_name', 'value'),
                ],
             )
-def update_main_DataTable(df, rt4):
+def update_main_DataTable(df, btn, Dcols, selected_cols, rt4, data, cat_var, level_vars, new_name):
     
     if df is None:
         raise PreventUpdate
         
     else:
-        df = pd.read_json(df)
-        if df.empty:
-            raise PreventUpdate
-            
-        data = df.to_dict('records')
-        columns = [{'id': c, 'name': c, 'deletable': True, 
-                    'renamable': True, 'selectable': True} for c in df.columns]
+        ctx1 = dash.callback_context
+        jd1 = json.dumps({'triggered': ctx1.triggered,})
+        jd1 = jd1[:50]
+        out_text = ""
         
-        style_table={'overflowX': 'auto', 'overflowY': 'auto'}
+        if 'level-collapse-btn1' not in jd1:
+            df = pd.read_json(df)
+            if df.empty:
+                raise PreventUpdate
+        
+        ############################################################################################
+        ################# COLLAPSE SELECTED LEVELS FOR SELECTED CATEGORICAL VARIABLE ###############
+        
+        elif 'level-collapse-btn1' in jd1:
+        
+            if cat_var is None or level_vars is None:
+                raise PreventUpdate
+            else:
+                df = pd.DataFrame(data)
+                
+                ls = df[cat_var].tolist()
+                ls = [new_name if i in level_vars else i for i in ls]
+                df[cat_var] = ls
+                out_text = "Level collapse complete! Continue collapsing levels or click the button below to close this window."
+        
+        
+        ############################################################################################
+        ################# UPDATE CHANGES IN SELECTED COLUMNS AND VARIABLE NAMES ####################
+        
+        if 'data_table' in jd1:
+            names = [column['name'] for column in Dcols]
+            ids = [column['id'] for column in Dcols]
+            
+            df = df.filter(items=names, axis=1)
+            
+            if selected_cols is None:
+                pass
+            elif len(selected_cols) > 0:
+                s_cols2 = []
+                for col in selected_cols:
+                    i = ids.index(col)
+                    new_name = names[i]
+                    s_cols2.append(new_name)
+                    
+                selected_cols = list(s_cols2)
+            
+            df.columns = names
+            
+        ############################################################################################
+        ########## DETECT VARIABLE THAT ARE NUMERIC, CATEGORICAL, OR POTENTIALLY BOTH ##############
+        
+        ct, cat_vars, dichotomous_numerical_vars = 1, [], []
+            
+        variables = list(df)
+        for i in variables:
+            if 'Unnamed' in i:
+                new_lab = 'Unnamed ' + str(ct)
+                df.rename(columns={i: new_lab}, inplace=True)
+                i = new_lab
+                ct += 1
+            
+            # 1. Convert df[i] to numeric and coerce all non-numbers to np.nan 
+            df['temp'] = pd.to_numeric(df[i], errors='coerce')
+            # 2. Replace all the np.nan's in df['temp'] with values in df[i]
+            df['temp'].fillna(df[i], inplace=True)
+            # 3. Replace df[i] with df['temp']
+            df[i] = df['temp'].copy(deep=True)
+            # 4. Drop df['temp']
+            df.drop(labels=['temp'], axis=1, inplace=True)
+            
+            ls = df[i].unique()
+                
+            if all(isinstance(item, str) for item in ls) is True:
+                # if all items are strings, then call the feature categorical
+                cat_vars.append(i)
+                
+            else:
+                # else call the feature numeric
+                df[i] = pd.to_numeric(df[i], errors='coerce')
+                
+            if len(ls) == 2 and all(isinstance(item, str) for item in ls) is False:
+                dichotomous_numerical_vars.append(i)
+        
+        
+        data = df.to_dict('records')
+        
+        columns = [{'id': c, 
+                    'name': c, 
+                    'deletable': True, 
+                    'renamable': True, 
+                    'selectable': True} for c in df.columns]
+        
+        style_table={'overflowX': 'auto', 
+                     'overflowY': 'auto',
+                     }
         
         style = {'width': '100%',
                  'height': '50%', 
                  "display": "block",
-            }
-                
-        return data, columns, style_table, style
+                 }
+        
+        cat_vars = sorted(cat_vars)
+        
+        if selected_cols is None or 'main_df.data' in jd1:
+            selected_cols = list(df)
+        
+        if 'level-collapse-btn1' in jd1:
+            return [data, columns, style_table, style, cat_vars, 
+                    dichotomous_numerical_vars, out_text, 0, selected_cols]
+        
+        return [data, columns, style_table, style, cat_vars, 
+                    dichotomous_numerical_vars, out_text, 0, selected_cols]
 
 
-@app.callback(
-    Output('data_table', 'selected_columns'),
-    Input('data_table', 'columns')
-)
-def update_columns_for_DataTable(columns):
-    # Select all column IDs
-    selected_columns = [col['id'] for col in columns]
-    return selected_columns
+
 
 
 ###################  Update Variables For Models  ##################################################
@@ -5579,7 +6231,6 @@ def update_select_variables_for_in_depth_single_OLS(df, selected_cols, cat_vars)
         for l in ls:
             lens.append(len(l))
         maxl = max(lens)
-        print('maxl:', maxl)
         
         if maxl < 40:
             optionHeight = 50
@@ -5643,7 +6294,6 @@ def update_variables_for_quantile_regression(df, selected_cols, cat_vars):
         for l in ls:
             lens.append(len(l))
         maxl = max(lens)
-        print('maxl:', maxl)
         
         if maxl < 40:
             optionHeight = 50
@@ -5708,7 +6358,6 @@ def update_variables_for_multiple_linear_regression(df, selected_cols, cat_vars)
         for l in ls2:
             lens.append(len(l))
         maxl = max(lens)
-        print('maxl:', maxl)
         
         if maxl < 40:
             optionHeight = 50
@@ -5773,7 +6422,6 @@ def update_variables_for_glm(df, selected_cols, cat_vars):
         for l in ls2:
             lens.append(len(l))
         maxl = max(lens)
-        print('maxl:', maxl)
         
         if maxl < 40:
             optionHeight = 50
@@ -5832,7 +6480,6 @@ def update_variables_for_logistic_regression(df, selected_cols, cat_vars, di_num
         for l in ls2:
             lens.append(len(l))
         maxl = max(lens)
-        print('maxl:', maxl)
         
         if maxl < 40:
             optionHeight = 30
@@ -5907,7 +6554,6 @@ def update_variables_for_cox_regression(df, selected_cols, cat_vars):
         for l in ls2:
             lens.append(len(l))
         maxl = max(lens)
-        print('maxl:', maxl)
         
         if maxl < 40:
             optionHeight = 50
@@ -8692,13 +9338,10 @@ def update_glm(contents1, contents2, contents3, n_clicks, smartscale,
                 "Error: GLM requires 1 or more predictors.", "", "", 0, 0]
                         
     else:
-        print(df.shape)
         vars_ = [yvar] + xvars
         df = df.filter(items=vars_, axis=1)
-        print(df.shape)
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
         df.dropna(how='any', axis=0, inplace=True)
-        print(df.shape)
         
         if smartscale == 1:
             df, xvars, yvars = smart_scale(df, xvars, [yvar])
@@ -8716,11 +9359,6 @@ def update_glm(contents1, contents2, contents3, n_clicks, smartscale,
             for var in xvars:
                 df = df[df[var] > 0]
             df.dropna(how='any', inplace=True)    
-            print(df.shape)
-            #features = xvars + yvar + cat_vars
-            #features = list(set(features))
-            #df.filter(labels=features, axis=1)
-            #df.drop(
             pass
         
         elif glm_model == 'Gaussian':
