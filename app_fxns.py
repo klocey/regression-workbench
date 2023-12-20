@@ -108,7 +108,7 @@ def obs_pred_rsquare(obs, pred):
     return r2
 
 
-def smart_scale(df, predictors, responses):
+def smart_scale(df, predictors, responses, transform_res=True):
     
     '''
     Skewness generally comes in two forms:
@@ -127,6 +127,10 @@ def smart_scale(df, predictors, responses):
     '''
     
     for i in list(df):
+        
+        if i in responses and transform_res is False:
+            continue
+        
         stat, pval = float(), float()
         try: stat, pval = stats.skewtest(df[i], nan_policy='omit')
         except: continue

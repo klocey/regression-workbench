@@ -144,6 +144,45 @@ def control_card_decision_tree_regression():
                             },
                         ),
                 
+                html.Div(
+                children=[
+                    html.B("Choose a transformation",
+                        style={'display': 'inline-block',
+                               'vertical-align': 'top',
+                               'margin-right': '3%',
+                        }),
+                    html.I(className="fas fa-question-circle fa-lg", 
+                           id="transform_dt_response",
+                           style={'display': 'inline-block', 
+                                  'color':'#bfbfbf',
+                                  },
+                           ),
+                    dbc.Tooltip("For rescaling your response variable",
+                        target="transform_dt_response",
+                        style = {'font-size': 12,
+                                 },
+                        ),
+                    dcc.Dropdown(
+                            id='dt_response_transform',
+                            options=[{"label": i, "value": i} for i in ['None', 'log10', 
+                                                                        'square root', 'cube root',
+                                                                        'squared', 'cubed', 
+                                                                        'log-modulo', 'log-shift',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value='None',
+                            style={'width': '90%',
+                                   'display': 'inline-block',
+                                 },
+                            ),
+                    ],
+                    style={'display': 'inline-block',
+                           'vertical-align': 'top',
+                           'margin-right': '3%',
+                           'width': '20%',
+                    }),
+                
                 html.Br(),
                 html.Br(),
                 
@@ -175,11 +214,24 @@ def control_card_decision_tree_regression():
                                     ],
                                    ),
                      dbc.ModalFooter(
-                                    dbc.Button("Close",
-                                               id="close-dec_tree_reg_table_params", 
-                                               className="ml-auto"),
-                                    ),
-                            ],
+                             dbc.Button("Click to Close",
+                                id="close-dec_tree_reg_table_params",
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+                     
+                     ],
                     id="modal-dec_tree_reg_table_params",
                     is_open=False,
                     centered=True,
@@ -221,13 +273,25 @@ def control_card_decision_tree_regression():
                         html.Br(),
                         ],
                         ),
-                        
                      dbc.ModalFooter(
-                                    dbc.Button("Close", 
-                                    id="close-dec_tree_reg_table_perf", 
-                                    className="ml-auto")
-                                    ),
-                            ],
+                             dbc.Button("Click to Close",
+                                id="close-dec_tree_reg_table_perf",  
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+                     
+                     ],
                     id="modal-dec_tree_reg_table_perf",
                     is_open=False,
                     centered=True,
@@ -365,7 +429,7 @@ def run_decision_tree_regression(df, xvars, yvar, cat_vars):
 
 
 
-def get_updated_results(n_clicks, xvars, yvar, df, cat_vars):
+def get_updated_results(n_clicks, xvars, yvar, df, cat_vars, y_transform):
     
     cols = ['Variable', 'Importance']
     df_table1 = pd.DataFrame(columns=cols)
@@ -454,8 +518,53 @@ def get_updated_results(n_clicks, xvars, yvar, df, cat_vars):
         vars_ = [yvar] + xvars
         df = df.filter(items=vars_, axis=1)
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        
+        if y_transform is None or y_transform == 'None':
+            pass
+        
+        else:
+            if y_transform == 'log10':
+                df[yvar] = np.log10(df[yvar])
+                df.rename(columns={yvar: "log<sub>10</sub>(" + yvar + ")"}, inplace=True)
+                yvar = "log<sub>10</sub>(" + yvar + ")"
+                
+            elif y_transform == 'square root':
+                df[yvar] = df[yvar]**0.5
+                df.rename(columns={yvar: "\u221A(" + yvar + ")"}, inplace=True)
+                yvar = "\u221A(" + yvar + ")"
+                
+            elif y_transform == 'cube root':
+                df[yvar] = df[yvar]**(1/3)
+                df.rename(columns={yvar: "\u221B(" + yvar + ")"}, inplace=True)
+                yvar = "\u221B(" + yvar + ")"
+                
+            elif y_transform == 'squared':
+                df[yvar] = df[yvar]**2
+                df.rename(columns={yvar: "(" + yvar + ")\u00B2"}, inplace=True)
+                yvar = "(" + yvar + ")\u00B2"
+                
+            elif y_transform == 'cubed':
+                df.rename(columns={yvar: "(" + yvar + ")\u00B3"}, inplace=True)
+                yvar = "(" + yvar + ")\u00B3"
+                
+            elif y_transform == 'log-modulo':
+                lmt = np.log10(np.abs(df[yvar]) + 1).tolist()
+                for i, val in enumerate(df[yvar].tolist()):
+                    if val < 0:
+                        lmt[i] = lmt[i] * -1
+                df[yvar] = lmt  
+                df.rename(columns={yvar: "log-modulo(" + yvar + ")"}, inplace=True)
+                yvar = "log-modulo(" + yvar + ")"
+                
+            elif y_transform == 'log-shift':
+                df[yvar] = np.log10(df[yvar] + 1).tolist()
+                df.rename(columns={yvar: "log-shift(" + yvar + ")"}, inplace=True)
+                yvar = "log-shift(" + yvar + ")"
+            
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        
         cat_vars = [element for element in cat_vars if element in xvars]    
-                            
+        
         #Conduct decision tree regression
         ls = run_decision_tree_regression(df, xvars, yvar, cat_vars)
         y_train, y_test, y_pred, best_hyper_params, importance_df, tree_diagram, tree_data, model_mse, r_square, xlabs = ls 

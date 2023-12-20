@@ -270,11 +270,11 @@ def control_card_upload1b():
         )
 
 
-def level_collapser_control_card():
+def level_grouper_control_card():
     
     return html.Div(
         children=[
-            html.H5('Collapse Levels',
+            html.H5('Group Levels',
                    style={'textAlign': 'left', 
                           'font-size': 28,
                           'color': '#ffffff',
@@ -290,7 +290,7 @@ def level_collapser_control_card():
                    },
                 ),
             dcc.Dropdown(
-                    id='cat_var_collapse',
+                    id='cat_var_group',
                     options=[{"label": i, "value": i} for i in []],
                     multi=False, 
                     value=None,
@@ -316,7 +316,7 @@ def level_collapser_control_card():
                     ),
             html.Br(),
             
-            html.B("Create a new level OR collapse the level(s) you chose into an existing level",
+            html.B("Create a new level OR group the level(s) you chose into an existing level",
                 style={'display': 'block',
                        'font-size': 16,
                        'vertical-align': 'top',
@@ -334,8 +334,8 @@ def level_collapser_control_card():
             ),
             html.Br(),
             
-            dbc.Button('Collapse', 
-                        id='level-collapse-btn1', 
+            dbc.Button('Group', 
+                        id='level-group-btn1', 
                         n_clicks=0,
                         style={'width': '20%',
                             'font-size': 14,
@@ -344,12 +344,12 @@ def level_collapser_control_card():
                             },
             ),
             html.Br(),
-            html.H5("", id='collapse_text',
+            html.H5("", id='group_text',
             style={'textAlign': 'left',
                    'font-size': 16,
                    'margin-left': '3%',
                    'color': '#ffffff'}),
-            dcc.Interval(id='collapse-interval-component', interval=3000, n_intervals=0)
+            dcc.Interval(id='group-interval-component', interval=3000, n_intervals=0)
             ],
         )
     
@@ -531,8 +531,8 @@ def inspect_data_table():
                         ),
                     
                 dbc.ModalFooter([
-                        dbc.Button('Collapse Levels',
-                                   id="open-level-collapse",
+                        dbc.Button('Group Levels',
+                                   id="open-level-group",
                                    style={
                                        "background-color": "#2a8cff",
                                        'width': '30%',
@@ -544,9 +544,9 @@ def inspect_data_table():
                         dbc.Modal([
                             dbc.ModalBody([
                                     html.Div(
-                                            id="level-collapse",
+                                            id="level-group",
                                             className="one columns",
-                                            children=[level_collapser_control_card()],
+                                            children=[level_grouper_control_card()],
                                             style={'width': '100%'},
                                         ),
                                     html.Br(),
@@ -557,7 +557,7 @@ def inspect_data_table():
                                     ),
                             dbc.ModalFooter(
                                     dbc.Button("Click to Close",
-                                       id="close-level-collapse", 
+                                       id="close-level-group", 
                                        className="ml-auto",
                                        style={
                                            "background-color": "#2a8cff",
@@ -573,7 +573,7 @@ def inspect_data_table():
                                         },
                                     ),
                                 ],
-                            id="modal-level-collapse",
+                            id="modal-level-group",
                             
                             is_open=False,
                             centered=True,

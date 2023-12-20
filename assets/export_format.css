@@ -1,0 +1,15 @@
+.export {
+border-radius: 2px;
+border: 2px solid lightgrey;
+#padding: 0 15px;
+#font-family: ‘Poppins-Bold’;
+color: white;
+background-color:#2a8cff;
+#transition:.75s;
+}
+
+.export:hover {
+color:white;
+box-shadow: 0px 1px 3px lightgrey;
+background-color: #2a8cff;
+}

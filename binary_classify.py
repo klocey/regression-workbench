@@ -312,10 +312,23 @@ def control_card_logistic():
                                     ],
                                    ),
                      dbc.ModalFooter(
-                                    dbc.Button("Close", 
-                                               id="close-centered5", 
-                                               className="ml-auto"),
-                                    ),
+                             dbc.Button("Click to Close",
+                                id="close-centered5", 
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+                     
                             ],
                     id="modal-centered5",
                     is_open=False,
@@ -343,10 +356,23 @@ def control_card_logistic():
                                     ],
                                    ),
                      dbc.ModalFooter(
-                                    dbc.Button("Close", 
-                                               id="close-centered6", 
-                                               className="ml-auto")
-                                    ),
+                             dbc.Button("Click to Close",
+                                id="close-centered6", 
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+                     
                             ],
                     id="modal-centered6",
                     is_open=False,

@@ -271,11 +271,24 @@ def control_card_quantile_regression():
                                     html.Br(),
                                     html.P("", id="quant_table_txt"),
                                     ]),
+                                    
                                     dbc.ModalFooter(
-                                    dbc.Button("Close", 
+                                            dbc.Button("Click to Close",
                                                id="close-quant_regression_table", 
-                                               className="ml-auto")
-                                    ),
+                                               className="ml-auto",
+                                               style={
+                                                   "background-color": "#2a8cff",
+                                                   'width': '30%',
+                                                   'font-size': 14,
+                                                   },
+                                               ),
+                                            style={
+                                                "background-color": "#A0A0A0",
+                                                "display": "flex",
+                                                "justify-content": "center",
+                                                "align-items": "center",
+                                                },
+                                            ),
                             ],
                     id="modal-quant_regression_table",
                     is_open=False,

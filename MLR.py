@@ -126,10 +126,48 @@ def control_card_linear_multivariable():
                             ],
                             style={'width': '30%',
                               'display': 'inline-block',
-                              'margin-right': '5%',
+                              'margin-right': '2%',
                             },
                         ),
                 
+                html.Div(
+                children=[
+                    html.B("Choose a transformation",
+                        style={'display': 'inline-block',
+                               'vertical-align': 'top',
+                               'margin-right': '3%',
+                        }),
+                    html.I(className="fas fa-question-circle fa-lg", 
+                           id="transform_mlr_response",
+                           style={'display': 'inline-block', 
+                                  'color':'#bfbfbf',
+                                  },
+                           ),
+                    dbc.Tooltip("For rescaling your response variable",
+                        target="transform_mlr_response",
+                        style = {'font-size': 12,
+                                 },
+                        ),
+                    dcc.Dropdown(
+                            id='response_transform',
+                            options=[{"label": i, "value": i} for i in ['None', 'log10', 
+                                                                        'square root', 'cube root',
+                                                                        'squared', 'cubed', 
+                                                                        'log-modulo', 'log-shift',
+                                                                        ]
+                                     ],
+                            multi=False, 
+                            value='None',
+                            style={'width': '90%',
+                                   'display': 'inline-block',
+                                 },
+                            ),
+                    ],
+                    style={'display': 'inline-block',
+                           'vertical-align': 'top',
+                           'margin-right': '3%',
+                           'width': '20%',
+                    }),
                 
                 html.Div(
                     children = [
@@ -166,7 +204,7 @@ def control_card_linear_multivariable():
                             ],
                             style={'width': '20%',
                               'display': 'inline-block',
-                              'margin-right': '5%',
+                              'margin-right': '2%',
                             },
                         ),
                 
@@ -203,7 +241,7 @@ def control_card_linear_multivariable():
                                    },
                             ),
                         ],
-                        style={'width': '30%',
+                        style={'width': '20%',
                                'display': 'inline-block',
                         },
                     ),
@@ -237,16 +275,29 @@ def control_card_linear_multivariable():
                                     html.Br(), 
                                     html.P("", id='tab3btxt')]),
                                     dbc.ModalFooter(
-                                    dbc.Button("Close", 
+                                            dbc.Button("Click to Close",
                                                id="close-centered3", 
-                                               className="ml-auto")
-                                    ),
+                                               className="ml-auto",
+                                               style={
+                                                   "background-color": "#2a8cff",
+                                                   'width': '30%',
+                                                   'font-size': 14,
+                                                   },
+                                               ),
+                                            style={
+                                                "background-color": "#A0A0A0",
+                                                "display": "flex",
+                                                "justify-content": "center",
+                                                "align-items": "center",
+                                                },
+                                            ),
                             ],
                     id="modal-centered3",
                     is_open=False,
                     centered=True,
                     autoFocus=True,
-                    size="xl",
+                    fullscreen=True,
+                    #size="xl",
                     keyboard=True,
                     fade=True,
                     backdrop=True,
@@ -270,10 +321,23 @@ def control_card_linear_multivariable():
                                     ],
                                    ),
                      dbc.ModalFooter(
-                                    dbc.Button("Close", 
-                                    id="close-centered4", 
-                                    className="ml-auto")
-                                    ),
+                             dbc.Button("Click to Close",
+                                id="close-centered4",  
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+                     
                             ],
                     id="modal-centered4",
                     is_open=False,
@@ -497,7 +561,7 @@ def run_MLR(df_train, xvars, yvar, cat_vars, rfe_val, mlr_model):
 
 
 
-def get_updated_results(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val, mlr_model):
+def get_updated_results(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val, mlr_model, y_transform):
     
                         
     cols = ['Model information', 'Model statistics']
@@ -613,8 +677,52 @@ def get_updated_results(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
         
         if smartscale == 1:
-            df, xvars, yvars = app_fxns.smart_scale(df, xvars, [yvar])
+            df, xvars, yvars = app_fxns.smart_scale(df, xvars, [yvar], transform_res=False)
             yvar = yvars[0]
+        
+        if y_transform is None or y_transform == 'None':
+            pass
+        
+        else:
+            if y_transform == 'log10':
+                df[yvar] = np.log10(df[yvar])
+                df.rename(columns={yvar: "log<sub>10</sub>(" + yvar + ")"}, inplace=True)
+                yvar = "log<sub>10</sub>(" + yvar + ")"
+                
+            elif y_transform == 'square root':
+                df[yvar] = df[yvar]**0.5
+                df.rename(columns={yvar: "\u221A(" + yvar + ")"}, inplace=True)
+                yvar = "\u221A(" + yvar + ")"
+                
+            elif y_transform == 'cube root':
+                df[yvar] = df[yvar]**(1/3)
+                df.rename(columns={yvar: "\u221B(" + yvar + ")"}, inplace=True)
+                yvar = "\u221B(" + yvar + ")"
+                
+            elif y_transform == 'squared':
+                df[yvar] = df[yvar]**2
+                df.rename(columns={yvar: "(" + yvar + ")\u00B2"}, inplace=True)
+                yvar = "(" + yvar + ")\u00B2"
+                
+            elif y_transform == 'cubed':
+                df.rename(columns={yvar: "(" + yvar + ")\u00B3"}, inplace=True)
+                yvar = "(" + yvar + ")\u00B3"
+                
+            elif y_transform == 'log-modulo':
+                lmt = np.log10(np.abs(df[yvar]) + 1).tolist()
+                for i, val in enumerate(df[yvar].tolist()):
+                    if val < 0:
+                        lmt[i] = lmt[i] * -1
+                df[yvar] = lmt  
+                df.rename(columns={yvar: "log-modulo(" + yvar + ")"}, inplace=True)
+                yvar = "log-modulo(" + yvar + ")"
+                
+            elif y_transform == 'log-shift':
+                df[yvar] = np.log10(df[yvar] + 1).tolist()
+                df.rename(columns={yvar: "log-shift(" + yvar + ")"}, inplace=True)
+                yvar = "log-shift(" + yvar + ")"
+            
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
             
         #Conduct multiple regression
         ls = run_MLR(df, xvars, yvar, cat_vars, rfe_val, mlr_model)

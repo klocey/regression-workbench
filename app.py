@@ -386,13 +386,13 @@ def toggle_modal_inspect_main_datatable(n1, n2, is_open):
 
 
 @app.callback(
-    Output("modal-level-collapse", "is_open"),
-    [Input("open-level-collapse", "n_clicks"), 
-     Input("close-level-collapse", "n_clicks")],
-    [State("modal-level-collapse", "is_open")],
+    Output("modal-level-group", "is_open"),
+    [Input("open-level-group", "n_clicks"), 
+     Input("close-level-group", "n_clicks")],
+    [State("modal-level-group", "is_open")],
     prevent_initial_call=True,
 )
-def toggle_modal_level_collapse(n1, n2, is_open):
+def toggle_modal_level_group(n1, n2, is_open):
     if n1 or n2:
         return not is_open
     return is_open
@@ -794,8 +794,8 @@ def update_main_DataFrame(list_of_contents, hcris, hais, hacrp, hrrp, c_and_d, p
 
 
 
-@app.callback(Output('collapse_text', 'style'),
-              [Input('collapse-interval-component', 'n_intervals')]
+@app.callback(Output('group_text', 'style'),
+              [Input('group-interval-component', 'n_intervals')]
               )
 def hide_text(n):
     if n >= 2:
@@ -807,7 +807,7 @@ def hide_text(n):
     
     
 @app.callback(Output('level_vars', 'options'),
-              [Input('cat_var_collapse', 'value')],
+              [Input('cat_var_group', 'value')],
               [State('data_table', 'data')],
               )
 def update_level_vars_options(cat_var, data):
@@ -826,17 +826,17 @@ def update_level_vars_options(cat_var, data):
         return ls
 
 
-@app.callback([Output('cat_var_collapse', 'options'),
-               Output('cat_var_collapse', 'value'),
+@app.callback([Output('cat_var_group', 'options'),
+               Output('cat_var_group', 'value'),
                ],
-              [Input("open-level-collapse", 'n_clicks'),
-               Input('collapse_text', 'children'),
+              [Input("open-level-group", 'n_clicks'),
+               Input('group_text', 'children'),
                ],
               [State('cat_vars', 'children'),
                State('data_table', 'selected_columns'),
                ],
             )
-def update_cat_vars_for_collapse(n_clicks, trigger, cat_vars, selected_cols):
+def update_cat_vars_for_group(n_clicks, trigger, cat_vars, selected_cols):
     
     if selected_cols is None or cat_vars is None:
         raise PreventUpdate
@@ -880,18 +880,18 @@ def update_statsmodels_data_table(tags):
                Output('Data-Table1', 'style'),
                Output('cat_vars', 'children'),
                Output('di_numerical_vars', 'children'),
-               Output('collapse_text', 'children'),
-               Output('collapse-interval-component', 'n_intervals'),
+               Output('group_text', 'children'),
+               Output('group-interval-component', 'n_intervals'),
                Output('data_table', 'selected_columns'),
                ],
               [Input('main_df', 'data'),
-               Input('level-collapse-btn1', 'n_clicks'),
+               Input('level-group-btn1', 'n_clicks'),
                Input('data_table', 'columns'),
                Input('data_table', 'selected_columns'),
                ],
               [State('rt4', 'children'),
                State('data_table', 'data'),
-               State('cat_var_collapse', 'value'),
+               State('cat_var_group', 'value'),
                State('level_vars', 'value'),
                State('new_level_name', 'value'),
                ],
@@ -907,15 +907,15 @@ def update_main_DataTable(df, btn, Dcols, selected_cols, rt4, data, cat_var, lev
         jd1 = jd1[:50]
         out_text = ""
         
-        if 'level-collapse-btn1' not in jd1:
+        if 'level-group-btn1' not in jd1:
             df = pd.read_json(df)
             if df.empty:
                 raise PreventUpdate
         
         ############################################################################################
-        ################# COLLAPSE SELECTED LEVELS FOR SELECTED CATEGORICAL VARIABLE ###############
+        ################# GROUP SELECTED LEVELS FOR SELECTED CATEGORICAL VARIABLE ###############
         
-        elif 'level-collapse-btn1' in jd1:
+        elif 'level-group-btn1' in jd1:
         
             if cat_var is None or level_vars is None:
                 raise PreventUpdate
@@ -925,7 +925,7 @@ def update_main_DataTable(df, btn, Dcols, selected_cols, rt4, data, cat_var, lev
                 ls = df[cat_var].tolist()
                 ls = [new_name if i in level_vars else i for i in ls]
                 df[cat_var] = ls
-                out_text = "Level collapse complete! Continue collapsing levels or click the button below to close this window."
+                out_text = "Level group complete! Continue collapsing levels or click the button below to close this window."
         
         
         ############################################################################################
@@ -1009,7 +1009,7 @@ def update_main_DataTable(df, btn, Dcols, selected_cols, rt4, data, cat_var, lev
         if selected_cols is None or 'main_df.data' in jd1:
             selected_cols = list(df)
         
-        if 'level-collapse-btn1' in jd1:
+        if 'level-group-btn1' in jd1:
             return [data, columns, style_table, style, cat_vars, 
                     dichotomous_numerical_vars, out_text, 0, selected_cols]
         
@@ -1624,13 +1624,14 @@ def update_quantile_regression(n_clicks, reset, xvar, yvar, x_transform, y_trans
                State('cat_vars', 'children'),
                State('rfecv', 'value'),
                State('mlr_model', 'value'),
+               State('response_transform', 'value'),
                ]
         )
 def update_linear_multivariable_regression(n_clicks, smartscale, reset, xvars, yvar, df, cat_vars, 
-                                           rfe_val, mlr_model):
+                                           rfe_val, mlr_model, response_transform):
     
     return MLR.get_updated_results(n_clicks, smartscale, xvars, yvar, df, cat_vars, 
-                                   rfe_val, mlr_model)
+                                   rfe_val, mlr_model, response_transform)
     
 
 @app.callback([Output('figure_plot4a', 'figure'),
@@ -1677,10 +1678,13 @@ def update_logistic_regression(n_clicks, smartscale, reset, main_df, xvars, yvar
                State('cat_vars', 'children'),
                State('rfecv_glm', 'value'),
                State('glm_model', 'value'),
+               State('glm_response_transform', 'value'),
                ],
         )
-def update_glm(n_clicks, smartscale, reset, xvars, yvar, df, cat_vars, rfe_val, glm_model):
-    return GLM.get_updated_results(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val, glm_model)
+def update_glm(n_clicks, smartscale, reset, xvars, yvar, df, cat_vars, rfe_val, 
+               glm_model, response_transform):
+    return GLM.get_updated_results(n_clicks, smartscale, xvars, yvar, df, cat_vars, rfe_val, 
+                                   glm_model, response_transform)
 
 
 @app.callback([Output('survival_regression_figure', 'figure'),
@@ -1727,10 +1731,12 @@ def update_survival_regression(n_clicks, smartscale, reset, xvars,
                State('yvar_dec_tree_reg', 'value'),
                State('data_table', 'data'),
                State('cat_vars', 'children'),
+               State('dt_response_transform', 'value'),
                ]
         )
-def update_decision_tree_regression(n_clicks, reset, xvars, yvar, df, cat_vars):
-    return DecisionTree.get_updated_results(n_clicks, xvars, yvar, df, cat_vars)
+def update_decision_tree_regression(n_clicks, reset, xvars, yvar, df, cat_vars, response_transform):
+    return DecisionTree.get_updated_results(n_clicks, xvars, yvar, df, cat_vars,
+                                            response_transform)
     
 
 ####################################################################################################

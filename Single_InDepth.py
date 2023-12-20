@@ -249,10 +249,23 @@ def control_card_single_regression():
                                     ],
                                    ),
                      dbc.ModalFooter(
-                                    dbc.Button("Close", 
-                                               id="close-single_regression_residuals_plot", 
-                                               className="ml-auto")
-                                    ),
+                             dbc.Button("Click to Close",
+                                id="close-single_regression_residuals_plot",
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+                     
                             ],
                     id="modal-single_regression_residuals_plot",
                     is_open=False,
@@ -284,10 +297,23 @@ def control_card_single_regression():
                                     ],
                                    ),
                      dbc.ModalFooter(
-                                    dbc.Button("Close", 
-                                               id="close-centered_single", 
-                                               className="ml-auto")
-                                    ),
+                             dbc.Button("Click to Close",
+                                id="close-centered_single", 
+                                className="ml-auto",
+                                style={
+                                    "background-color": "#2a8cff",
+                                    'width': '30%',
+                                    'font-size': 14,
+                                    },
+                                ),
+                             style={
+                                 "background-color": "#A0A0A0",
+                                 "display": "flex",
+                                 "justify-content": "center",
+                                 "align-items": "center",
+                                 },
+                             ),
+
                             ],
                     
                     id="modal-centered_single",
